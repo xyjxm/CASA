@@ -17,7 +17,7 @@ DEPLOY_ROOT = REPO_ROOT / "gear_sonic_deploy"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run one Phase 2 v2 collection lane.")
+    parser = argparse.ArgumentParser(description="Run one CASA Phase 2 v2 collection lane.")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--scene-plan-csv", type=Path, required=True)

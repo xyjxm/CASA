@@ -44,7 +44,7 @@ CROSS_QUOTAS = {
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build Phase 2 v2 clean natural visual dataset.")
+    parser = argparse.ArgumentParser(description="Build CASA Phase 2 v2 clean natural visual dataset.")
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--render-manifest", type=Path, action="append", required=True)
     parser.add_argument("--vlm-comparison", type=Path, action="append", required=True)

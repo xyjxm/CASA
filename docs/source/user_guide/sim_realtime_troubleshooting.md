@@ -214,7 +214,7 @@ publish_dt_ = 0.002;
 ### 终端 1：MuJoCo sim
 
 ```bash
-cd /mnt/data/students/lph/GR00T-WholeBodyControl
+cd /path/to/CASA
 source .venv_sim/bin/activate
 
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
@@ -232,7 +232,7 @@ python -u gear_sonic/scripts/run_sim_loop.py \
 ### 终端 2：C++ deployment
 
 ```bash
-cd /mnt/data/students/lph/GR00T-WholeBodyControl/gear_sonic_deploy
+cd /path/to/CASA/gear_sonic_deploy
 source ../scripts/setup_no_root_env.sh
 
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
@@ -366,4 +366,3 @@ C++ deployment 默认 500 Hz lowcmd DDS
 = sim actual_hz 恢复到约 188-193 Hz
 = policy 才能稳定控制
 ```
-
