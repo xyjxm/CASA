@@ -4,7 +4,7 @@ This runbook records the Stage 2 SONIC-Naive baseline: a fixed external task
 sequencer drives the existing `zmq_manager` interface through
 `walk_to_A -> stop -> face_user -> gesture -> walk_to_B`.
 
-Stage 2 does not add SkillGuard, automatic safety gating, Isaac Lab integration,
+Stage 2 does not add CASA gating, automatic safety gating, Isaac Lab integration,
 or closed-loop navigation. The two "goals" are naive fixed-duration walk phases.
 
 ## 1. Create a Run ID
@@ -12,7 +12,7 @@ or closed-loop navigation. The two "goals" are naive fixed-duration walk phases.
 Run from the repository root:
 
 ```bash
-cd /mnt/data/students/lph/GR00T-WholeBodyControl
+cd /path/to/CASA
 export RUN_ID="$(date +%Y%m%d_%H%M%S)"
 mkdir -p "outputs/sonic_stage2/${RUN_ID}"
 echo "${RUN_ID}"
@@ -23,7 +23,7 @@ Use the same `RUN_ID` in all terminals.
 ## 2. Terminal 1: MuJoCo Sim
 
 ```bash
-cd /mnt/data/students/lph/GR00T-WholeBodyControl
+cd /path/to/CASA
 source .venv_sim/bin/activate
 
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
@@ -50,7 +50,7 @@ python -u gear_sonic/scripts/run_sim_loop.py \
 ## 3. Terminal 2: C++ Deployment
 
 ```bash
-cd /mnt/data/students/lph/GR00T-WholeBodyControl/gear_sonic_deploy
+cd /path/to/CASA/gear_sonic_deploy
 source ../scripts/setup_no_root_env.sh
 
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
@@ -73,7 +73,7 @@ Confirm the deployment prompt, then wait until initialization is complete.
 This terminal is optional, but useful while tuning phase durations.
 
 ```bash
-cd /mnt/data/students/lph/GR00T-WholeBodyControl
+cd /path/to/CASA
 source .venv_sim/bin/activate
 
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
@@ -88,7 +88,7 @@ python -u gear_sonic/scripts/run_camera_viewer.py \
 ## 5. Terminal 4: Naive Task Runner
 
 ```bash
-cd /mnt/data/students/lph/GR00T-WholeBodyControl
+cd /path/to/CASA
 source .venv_sim/bin/activate
 
 python -u gear_sonic/scripts/run_sonic_naive_baseline.py \
@@ -116,7 +116,7 @@ outputs/sonic_stage2/<RUN_ID>/task/task_summary.json
 ## 6. Merge Logs
 
 ```bash
-cd /mnt/data/students/lph/GR00T-WholeBodyControl
+cd /path/to/CASA
 source .venv_sim/bin/activate
 
 python -u gear_sonic/scripts/summarize_sonic_stage2_episode.py \

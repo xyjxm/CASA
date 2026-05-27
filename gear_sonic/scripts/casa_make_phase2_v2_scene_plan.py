@@ -24,7 +24,7 @@ CROSS_QUOTAS = {
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Create Phase 2 v2 scene plan CSV.")
+    parser = argparse.ArgumentParser(description="Create CASA Phase 2 v2 scene plan CSV.")
     parser.add_argument("--output-csv", type=Path, required=True)
     parser.add_argument("--mode", choices=["pilot", "formal"], default="formal")
     parser.add_argument("--pilot-per-cell", type=int, default=10)

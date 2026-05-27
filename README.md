@@ -1,350 +1,134 @@
-<div align="center">
+# CASA
 
-  <img src="media/groot_wbc.png" width="800" alt="GEAR SONIC Header">
+CASA is a research codebase for **skill-level safety evaluation and gating for
+humanoid whole-body control**. It builds on the GR00T / GEAR-SONIC stack and adds
+structured skill wrappers, rollout logging, safety oracles, clean visual dataset
+builders, critic training, conformal calibration, and offline/online baseline
+evaluation.
 
-  <!-- --- -->
-  
-  
-</div>
+The repository is public so collaborators can inspect, reproduce, and extend the
+CASA pipeline. Generated datasets, experiment outputs, local caches, model
+weights, and machine-specific logs are intentionally excluded from Git.
 
-<div align="center">
+## What CASA Adds
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-76B900.svg)](LICENSE)
-[![IsaacLab](https://img.shields.io/badge/IsaacLab-2.3.2-orange.svg)](https://github.com/isaac-sim/IsaacLab/releases/tag/v2.3.2)
-[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-76B900.svg)](https://nvlabs.github.io/GR00T-WholeBodyControl/)
-[![Demo](https://img.shields.io/badge/Live%20Demo-GEAR--SONIC-blue.svg)](https://nvlabs.github.io/GEAR-SONIC/demo.html)
+- **Skill interface** for walk, turn, gesture, and passive/stop invocations.
+- **Safety oracle** that labels rollout evidence such as falls, collisions,
+  near-boundary behavior, human-distance violations, runtime artifacts, and
+  latency artifacts.
+- **Clean visual dataset tooling** for Phase 2 video review and VLM-assisted
+  triage.
+- **Invocation datasets and critics** for Phase 3 and Phase 4 safety learning.
+- **Conformal gates** for Phase 5 global and per-skill rejection thresholds.
+- **Five-baseline evaluation** comparing SONIC-only, hard contracts, raw critic,
+  global conformal, and CASA-A per-skill conformal gating.
 
-</div>
+## CASA Code Map
 
----
+| Area | Location | Purpose |
+|---|---|---|
+| CASA Python package | `gear_sonic/casa/` | Skills, oracle, logging, scene props, dataset helpers, Phase 5 utilities |
+| CASA scripts | `gear_sonic/scripts/casa_*.py` | Phase runners, dataset builders, audits, reports, and evaluation tools |
+| Research notes | `idea_and_plan/` | Planning and implementation reports from Phase 0-5 |
+| CASA overview | `docs/CASA_OVERVIEW.md` | Research story, architecture, labels, and artifact policy |
+| CASA pipeline | `docs/CASA_PIPELINE.md` | Reproducibility guide for Phase 0-5 |
+| Script index | `gear_sonic/scripts/README.md` | Sorted index of CASA command-line scripts |
+| Public safety scan | `docs/PUBLIC_REPO_SECURITY_SCAN.md` | Repository scan checklist and latest results |
 
+## Experiment Phases
 
+CASA is organized as a staged pipeline:
 
+| Phase | Goal | Main outputs |
+|---|---|---|
+| Phase 0 | Skill sanity and repeatability | Skill logs and long-horizon smoke reports |
+| Phase 1 | Skill wrapper validation | Repeatability summaries and per-skill evidence |
+| Phase 2 | Clean visual rollout dataset | Videos, contact sheets, VLM JSON, clean rollout CSVs |
+| Phase 3 | Invocation feasibility dataset | State-skill-label rows and mini critic checks |
+| Phase 4 | Strict clean 50k dataset | Train/calibration/test splits and raw critic artifacts |
+| Phase 5 | Conformal and baseline evaluation | Thresholds, baseline results, online episode summaries |
 
-# GR00T-WholeBodyControl
+See [`docs/CASA_PIPELINE.md`](docs/CASA_PIPELINE.md) for the detailed workflow
+and the scripts used by each phase.
 
-This is the codebase for the **GR00T Whole-Body Control (WBC)** projects. It hosts model checkpoints and scripts for training, evaluating, and deploying advanced whole-body controllers for humanoid robots. We currently support:
+## Quick Start
 
-- **Decoupled WBC**: the decoupled controller (RL for lower body, and IK for upper body) used in NVIDIA GR00T [N1.5](https://research.nvidia.com/labs/gear/gr00t-n1_5/) and [N1.6](https://research.nvidia.com/labs/gear/gr00t-n1_6/) models;
-- **GEAR-SONIC Series**: our latest iteration of generalist humanoid whole-body controllers (see our [whitepaper](https://nvlabs.github.io/GEAR-SONIC/));
-- **MotionBricks**: a real-time latent generative model for interactive motion control in animation and robotics (see the [project page](https://nvlabs.github.io/motionbricks/)).
-
-## News
-
-- **[2026-04-27]** 🧩 **MotionBricks preview** — interactive G1 demo, pretrained checkpoints (VQVAE · pose · root), synthetic training code, and motion-representation docs. See [`motionbricks/`](motionbricks/) and the [project page](https://nvlabs.github.io/motionbricks/).
-- **[2026-04-14]** 🌐 **[Live web demo](https://nvlabs.github.io/GEAR-SONIC/demo.html)** — try SONIC interactively in your browser. Features [Kimodo](https://github.com/nv-tlabs/kimodo) text-to-motion generation.
-- **[2026-04-10]** 🚀 Released **SONIC training code and checkpoint** on [HuggingFace](https://huggingface.co/nvidia/GEAR-SONIC). Train from scratch or finetune. **Additional embodiment support** and **VLA data collection pipeline**. See [Training Guide](https://nvlabs.github.io/GR00T-WholeBodyControl/user_guide/training.html).
-- **[2026-03-24]** 🔧 C++ inference stack update: motor error monitoring, TTS alerts, ZMQ protocol v4, idle-mode readaptation. **ZMQ header size changed to 1280 bytes.**
-- **[2026-03-16]** 📦 [BONES-SEED](https://huggingface.co/datasets/bones-studio/seed) open-sourced — 142K+ human motions (~288 hours) with G1 MuJoCo trajectories.
-- **[2026-02-19]** 🎉 Released GEAR-SONIC: pretrained checkpoints, C++ inference, VR teleoperation, and documentation.
-- **[2025-11-12]** 🏁 Initial release with Decoupled WBC for GR00T N1.5 and N1.6.
-
-## Table of Contents
-
-- [News](#news)
-- [GEAR-SONIC](#gear-sonic)
-- [VR Whole-Body Teleoperation](#vr-whole-body-teleoperation)
-- [Kinematic Planner](#kinematic-planner)
-- [SONIC Training](#sonic-training)
-- [TODOs](#todos)
-- [What's Included](#whats-included)
-  - [Setup](#setup)
-- [Documentation](#documentation)
-- [Citation](#citation)
-- [License](#license)
-- [Support](#support)
-- [MotionBricks](#motionbricks)
-- [Decoupled WBC](#decoupled-wbc)
-
-
-## GEAR-SONIC 
-
-<p style="font-size: 1.2em;">
-    <a href="https://nvlabs.github.io/GEAR-SONIC/"><strong>Website</strong></a> | 
-    <a href="https://huggingface.co/nvidia/GEAR-SONIC"><strong>Model</strong></a> | 
-    <a href="https://arxiv.org/abs/2511.07820"><strong>Paper</strong></a> | 
-    <a href="https://nvlabs.github.io/GR00T-WholeBodyControl/"><strong>Docs</strong></a>
-  </p>
-
-<div align="center">
-  <img src="docs/source/_static/sonic-preview-gif-480P.gif" width="800" >
-  
-</div>
-
-SONIC is a humanoid behavior foundation model that gives robots a core set of motor skills learned from large-scale human motion data. Rather than building separate controllers for predefined motions, SONIC uses motion tracking as a scalable training task, enabling a single unified policy to produce natural, whole-body movement and support a wide range of behaviors — from walking and crawling to teleoperation and multi-modal control. It is designed to generalize beyond the motions it has seen during training and to serve as a foundation for higher-level planning and interaction.
-
-In this repo, we release SONIC's training code, deployment framework, model checkpoints, and teleoperation stack for data collection.
-
-
-## VR Whole-Body Teleoperation
-
-SONIC supports real-time whole-body teleoperation via PICO VR headset, enabling natural human-to-robot motion transfer for data collection and interactive control.
-
-<div align="center">
-<table>
-<tr>
-<td align="center"><b>Walking</b></td>
-<td align="center"><b>Running</b></td>
-</tr>
-<tr>
-<td align="center"><img src="media/teleop_walking.gif" width="400"></td>
-<td align="center"><img src="media/teleop_running.gif" width="400"></td>
-</tr>
-<tr>
-<td align="center"><b>Sideways Movement</b></td>
-<td align="center"><b>Kneeling</b></td>
-</tr>
-<tr>
-<td align="center"><img src="media/teleop_sideways.gif" width="400"></td>
-<td align="center"><img src="media/teleop_kneeling.gif" width="400"></td>
-</tr>
-<tr>
-<td align="center"><b>Getting Up</b></td>
-<td align="center"><b>Jumping</b></td>
-</tr>
-<tr>
-<td align="center"><img src="media/teleop_getup.gif" width="400"></td>
-<td align="center"><img src="media/teleop_jumping.gif" width="400"></td>
-</tr>
-<tr>
-<td align="center"><b>Bimanual Manipulation</b></td>
-<td align="center"><b>Object Hand-off</b></td>
-</tr>
-<tr>
-<td align="center"><img src="media/teleop_bimanual.gif" width="400"></td>
-<td align="center"><img src="media/teleop_switch_hands.gif" width="400"></td>
-</tr>
-</table>
-</div>
-
-## Kinematic Planner
-
-SONIC includes a kinematic planner for real-time locomotion generation — choose a movement style, steer with keyboard/gamepad, and adjust speed and height on the fly.
-
-<div align="center">
-<table>
-<tr>
-<td align="center" colspan="2"><b>In-the-Wild Navigation</b></td>
-</tr>
-<tr>
-<td align="center" colspan="2"><img src="media/planner/planner_in_the_wild_navigation.gif" width="800"></td>
-</tr>
-<tr>
-<td align="center"><b>Run</b></td>
-<td align="center"><b>Happy</b></td>
-</tr>
-<tr>
-<td align="center"><img src="media/planner/planner_run.gif" width="400"></td>
-<td align="center"><img src="media/planner/planner_happy.gif" width="400"></td>
-</tr>
-<tr>
-<td align="center"><b>Stealth</b></td>
-<td align="center"><b>Injured</b></td>
-</tr>
-<tr>
-<td align="center"><img src="media/planner/planner_stealth.gif" width="400"></td>
-<td align="center"><img src="media/planner/planner_injured.gif" width="400"></td>
-</tr>
-<tr>
-<td align="center"><b>Kneeling</b></td>
-<td align="center"><b>Hand Crawling</b></td>
-</tr>
-<tr>
-<td align="center"><img src="media/planner/planner_kneeling.gif" width="400"></td>
-<td align="center"><img src="media/planner/planner_hand_crawling.gif" width="400"></td>
-</tr>
-<tr>
-<td align="center"><b>Elbow Crawling</b></td>
-<td align="center"><b>Boxing</b></td>
-</tr>
-<tr>
-<td align="center"><img src="media/planner/planner_elbow_crawling.gif" width="400"></td>
-<td align="center"><img src="media/planner/planner_boxing.gif" width="400"></td>
-</tr>
-</table>
-</div>
-
-## SONIC Training
-
-SONIC can be trained from scratch on the [Bones-SEED](https://huggingface.co/datasets/bones-studio/seed)
-motion capture dataset (142K+ motions, ~288 hours, Unitree G1 retargeted), or finetuned
-from the released checkpoint on [Hugging Face](https://huggingface.co/nvidia/GEAR-SONIC).
-
-### Quick start
+Clone with Git LFS enabled:
 
 ```bash
-# Install training dependencies (Isaac Lab must be installed separately — see docs)
-pip install -e "gear_sonic/[training]"
-
-# Download checkpoint + SMPL data from Hugging Face
-pip install huggingface_hub
-python download_from_hf.py --training
-
-# Download Bones-SEED G1 CSVs from huggingface.co/datasets/bones-studio/seed, then convert and filter
-python gear_sonic/data_process/convert_soma_csv_to_motion_lib.py \
-    --input /path/to/bones_seed/g1/csv/ \
-    --output data/motion_lib_bones_seed/robot --fps 30 --fps_source 120 --individual --num_workers 16
-python gear_sonic/data_process/filter_and_copy_bones_data.py \
-    --source data/motion_lib_bones_seed/robot --dest data/motion_lib_bones_seed/robot_filtered
-
-# Finetune from released checkpoint (64+ GPUs recommended)
-accelerate launch --num_processes=8 gear_sonic/train_agent_trl.py \
-    +exp=manager/universal_token/all_modes/sonic_release \
-    +checkpoint=sonic_release/last.pt \
-    num_envs=4096 headless=True \
-    ++manager_env.commands.motion.motion_lib_cfg.motion_file=data/motion_lib_bones_seed/robot_filtered \
-    ++manager_env.commands.motion.motion_lib_cfg.smpl_motion_file=data/smpl_filtered
+git clone https://github.com/xyjxm/CASA.git
+cd CASA
+git lfs install
+git lfs pull
 ```
 
-For the full guide including multi-node training, evaluation, ONNX export, and SOMA encoder setup:
-📖 [Installation (Training)](https://nvlabs.github.io/GR00T-WholeBodyControl/getting_started/installation_training.html) |
-[Training Guide](https://nvlabs.github.io/GR00T-WholeBodyControl/user_guide/training.html)
-
-
-## TODOs
-
-- [x] Release pretrained SONIC policy checkpoints
-- [x] Open source C++ inference stack
-- [x] Setup documentation
-- [x] Open source teleoperation stack and demonstration scripts
-- [x] Release training scripts and recipes for motion imitation and fine-tuning
-- [ ] Open source large-scale data collection workflows and fine-tuning VLA scripts. 
-- [ ] Publish additional preprocessed large-scale human motion datasets
-
-
-
-## What's Included
-
-This release includes:
-
-- **`gear_sonic_deploy`**: C++ inference stack for deploying SONIC policies on real hardware
-- **`gear_sonic`**: Full SONIC training stack — PPO training, data processing pipeline, and configuration system for training on Bones-SEED and custom motion datasets
-- **`motionbricks`**: Preview release of the MotionBricks real-time latent generative stack — interactive G1 demo, pretrained checkpoints, synthetic training code, and motion-representation docs
-
-### Setup
-
-> **Git LFS required.** This repo contains large binary assets (meshes, ONNX
-> models). Without Git LFS, you will get small pointer files instead of actual
-> data, causing silent failures. Install Git LFS first if you don't have it:
-> `sudo apt install git-lfs && git lfs install`
->
-> MotionBricks pretrained checkpoints are skipped by default to avoid an extra
-> ~2.2 GiB download during normal monorepo setup. MotionBricks GIFs and meshes
-> still download normally. Fetch the checkpoints explicitly if you plan to run
-> the MotionBricks demo.
+Create the MuJoCo simulation environment:
 
 ```bash
-git clone https://github.com/NVlabs/GR00T-WholeBodyControl.git
-cd GR00T-WholeBodyControl
-git lfs pull
-
-# Optional: fetch MotionBricks pretrained checkpoints.
-git lfs pull --include="motionbricks/out/**" --exclude=""
-
-# Verify your environment
+bash install_scripts/install_mujoco_sim.sh
+source .venv_sim/bin/activate
 python check_environment.py
 ```
 
-### Which environment do I need?
+Run a small CASA sanity check:
 
-| I want to... | Environment | How to install |
-|---|---|---|
-| **Train / finetune SONIC** | Isaac Lab's Python env | [Install Isaac Lab](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html), then `pip install -e "gear_sonic/[training]"` |
-| **Run MuJoCo simulation** | `.venv_sim` (auto-created) | `bash install_scripts/install_mujoco_sim.sh` |
-| **VR teleoperation** | `.venv_teleop` (auto-created) | `bash install_scripts/install_pico.sh` |
-| **Collect data** | `.venv_data_collection` (auto-created) | `bash install_scripts/install_data_collection.sh` |
-| **Deploy on real robot** | C++ build | See [deployment docs](https://nvlabs.github.io/GR00T-WholeBodyControl/getting_started/installation_deploy.html) |
-
-Each use case has its own lightweight environment. The install scripts use `uv`
-and create isolated venvs automatically — you don't need to manage them manually.
-Training is the only one that requires Isaac Lab (installed separately).
-
-## Documentation
-
-📚 **[Full Documentation](https://nvlabs.github.io/GR00T-WholeBodyControl/)**
-
-### Getting Started
-- [Installation Guide](https://nvlabs.github.io/GR00T-WholeBodyControl/getting_started/installation_deploy.html)
-- [Quick Start](https://nvlabs.github.io/GR00T-WholeBodyControl/getting_started/quickstart.html)
-- [VR Teleoperation Setup](https://nvlabs.github.io/GR00T-WholeBodyControl/getting_started/vr_teleop_setup.html)
-
-### Tutorials
-- [Keyboard Control](https://nvlabs.github.io/GR00T-WholeBodyControl/tutorials/keyboard.html)
-- [Gamepad Control](https://nvlabs.github.io/GR00T-WholeBodyControl/tutorials/gamepad.html)
-- [ZMQ Communication](https://nvlabs.github.io/GR00T-WholeBodyControl/tutorials/zmq.html)
-- [ZMQ Manager / PICO VR](https://nvlabs.github.io/GR00T-WholeBodyControl/tutorials/vr_wholebody_teleop.html)
-
-### Training
-- [Installation (Training)](https://nvlabs.github.io/GR00T-WholeBodyControl/getting_started/installation_training.html)
-- [Training Guide](https://nvlabs.github.io/GR00T-WholeBodyControl/user_guide/training.html)
-- [Training Data](https://nvlabs.github.io/GR00T-WholeBodyControl/user_guide/training_data.html)
-
-### Best Practices
-- [Teleoperation](https://nvlabs.github.io/GR00T-WholeBodyControl/user_guide/teleoperation.html)
-
-
-
-
-
-
----
-
-## Citation
-
-If you use GEAR-SONIC in your research, please cite:
-
-```bibtex
-@article{luo2025sonic,
-    title={SONIC: Supersizing Motion Tracking for Natural Humanoid Whole-Body Control},
-    author={Luo, Zhengyi and Yuan, Ye and Wang, Tingwu and Li, Chenran and Chen, Sirui and Casta\~neda, Fernando and Cao, Zi-Ang and Li, Jiefeng and Minor, David and Ben, Qingwei and Da, Xingye and Ding, Runyu and Hogg, Cyrus and Song, Lina and Lim, Edy and Jeong, Eugene and He, Tairan and Xue, Haoru and Xiao, Wenli and Wang, Zi and Yuen, Simon and Kautz, Jan and Chang, Yan and Iqbal, Umar and Fan, Linxi and Zhu, Yuke},
-    journal={arXiv preprint arXiv:2511.07820},
-    year={2025}
-}
+```bash
+python gear_sonic/scripts/casa_run_sanity_check.py \
+  --output-dir outputs/casa/phase0_sanity_smoke \
+  --duration-seconds 30
 ```
 
----
+Most full experiments require a live MuJoCo sim/deploy pair and write large
+outputs under `outputs/`, which is ignored by Git. The public repository contains
+the source code, documentation, and small reference assets only.
 
-## License
+## Upstream Relationship
 
-This project uses dual licensing:
+CASA is built on top of the upstream GR00T Whole-Body Control and GEAR-SONIC
+codebase. The upstream stack provides the humanoid controller, MuJoCo/Isaac
+integration, deployment tools, teleoperation utilities, and MotionBricks
+components. CASA-specific additions are concentrated in `gear_sonic/casa/`,
+`gear_sonic/scripts/casa_*.py`, and the CASA documentation under `docs/`.
 
-- **Source Code**: Licensed under Apache License 2.0 - applies to all code, scripts, and software components in this repository
-- **Model Weights**: Licensed under NVIDIA Open Model License - applies to all trained model checkpoints and weights
+Useful upstream references:
 
-See [LICENSE](LICENSE) for the complete dual-license text.
+- GR00T Whole-Body Control docs: <https://nvlabs.github.io/GR00T-WholeBodyControl/>
+- GEAR-SONIC project page: <https://nvlabs.github.io/GEAR-SONIC/>
+- MotionBricks project page: <https://nvlabs.github.io/motionbricks/>
 
-Please review both licenses before using this project. The NVIDIA Open Model License permits commercial use with attribution and requires compliance with NVIDIA's Trustworthy AI terms.
+## Reproducibility Notes
 
-All required legal documents, including the Apache 2.0 license, 3rd-party attributions, and DCO language, are consolidated in the /legal folder of this repository.
+- Large generated artifacts stay outside Git in `outputs/`.
+- Model weights and checkpoints are excluded; download upstream checkpoints from
+  their official sources when needed.
+- CASA dataset builders reject runtime/latency artifacts for strict training
+  sets and quarantine samples that are unsafe only by non-visual oracle evidence.
+- Phase 5 uses the Phase 4 strict clean calibration/test splits and does not
+  change Go/No-Go thresholds during evaluation.
 
----
+## Collaboration Workflow
 
-## Support
+Recommended branch flow:
 
-For questions and issues, please contact the GEAR WBC team at [gear-wbc@nvidia.com](mailto:gear-wbc@nvidia.com) to provide feedback! 
+1. Keep `main` stable and protected.
+2. Use `dev` as the integration branch.
+3. Create `feature/<short-name>` branches from `dev`.
+4. Open pull requests for review before merging.
+5. Keep generated files, local logs, credentials, and downloaded weights out of
+   commits.
 
-## MotionBricks
+Current `main` protection requires pull requests with at least one approving
+review for non-admin collaborators and blocks force pushes/deletions. Enable
+secret scanning push protection in GitHub settings when available.
 
-<p style="font-size: 1.2em;">
-  <a href="https://nvlabs.github.io/motionbricks/"><strong>Project page</strong></a> |
-  <a href="motionbricks/README.md"><strong>Subproject README</strong></a>
-</p>
+## License And Attribution
 
-<div align="center">
-  <img src="motionbricks/assets/gifs/teaser_animation.gif" width="400">
-  <img src="motionbricks/assets/gifs/teaser_robotics.gif" width="400">
-</div>
+Source code follows the repository license in [`LICENSE`](LICENSE). Upstream
+third-party notices and attribution files are preserved under [`legal/`](legal/).
+CASA-specific research code is added as an extension on top of the GR00T /
+GEAR-SONIC stack; please cite or acknowledge the upstream projects when using
+their controller, deployment, or motion-model components.
 
-MotionBricks is a real-time generative framework that transforms interactive motion control for animation and robotics. It combines a large-scale latent backbone with intuitive "smart primitives" to deliver high-quality, zero-shot motion synthesis at 15,000 FPS — complementing the tracking-based GEAR-SONIC controllers in this repo.
-
-This preview release ships an interactive G1 demo (keyboard-driven, MuJoCo viewer), pretrained checkpoints (VQVAE · pose · root), a synthetic training pipeline, and motion-representation docs. Its pretrained checkpoints are opt-in for monorepo clones; run `git lfs pull --include="motionbricks/out/**" --exclude=""` from the repo root before using the demo. A full release — fully embedded in the GEAR-SONIC pipeline — is targeted for approximately one month out. See [`motionbricks/README.md`](motionbricks/README.md) for setup, demo, and training instructions.
-
-## Decoupled WBC
-
-For the Decoupled WBC used in GR00T N1.5 and N1.6 models, please refer to the [Decoupled WBC documentation](docs/source/references/decoupled_wbc.md).
-
-
-## Acknowledgments
-We would like to acknowledge the following projects from which parts of the code in this repo are derived from:
-- [Beyond Mimic](https://github.com/HybridRobotics/whole_body_tracking)
-- [Isaac Lab](https://github.com/isaac-sim/IsaacLab)
+If you use CASA-specific safety gating, dataset, or conformal evaluation logic,
+please cite this repository and describe the CASA phase outputs used in your
+experiment.

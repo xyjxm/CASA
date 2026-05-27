@@ -4,7 +4,7 @@ This runbook records the Stage 3 offline metrics pass. It reuses a Stage 2
 SONIC-Naive run and computes switch-safety metrics without changing robot
 commands.
 
-Stage 3 is an offline judge. It does not add SkillGuard gating, recovery,
+Stage 3 is an offline judge. It does not add CASA gating, recovery,
 obstacle logic, edge logic, or learned risk estimation.
 
 ## 1. Reuse a Stage 2 Run
@@ -12,7 +12,7 @@ obstacle logic, edge logic, or learned risk estimation.
 Use a completed Stage 2 run directory:
 
 ```bash
-cd /mnt/data/students/lph/GR00T-WholeBodyControl
+cd /path/to/CASA
 export RUN_ID=<stage2_run_id>
 ```
 
@@ -28,7 +28,7 @@ outputs/sonic_stage2/<RUN_ID>/target_motion.csv
 ## 2. Compute Metrics
 
 ```bash
-cd /mnt/data/students/lph/GR00T-WholeBodyControl
+cd /path/to/CASA
 source .venv_sim/bin/activate
 
 python -u gear_sonic/scripts/summarize_sonic_stage3_metrics.py \

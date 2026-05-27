@@ -1,0 +1,69 @@
+# CASA Script Index
+
+This directory contains both upstream SONIC scripts and CASA experiment scripts.
+CASA scripts use the `casa_*.py` prefix.
+
+## Phase 0-1: Skill Checks
+
+| Script | Purpose |
+|---|---|
+| `casa_run_sanity_check.py` | Run a CASA Phase 0 long-horizon skill sanity check |
+| `casa_run_skill_repeatability.py` | Run Phase 0/1 repeatability checks for CASA skills |
+| `casa_verify_gesture_amplitude.py` | Verify gesture command amplitude from MuJoCo logs |
+| `casa_run_rollout_with_oracle.py` | Run the CASA oracle on one rollout or explicit log files |
+
+## Phase 2: Visual Dataset
+
+| Script | Purpose |
+|---|---|
+| `casa_collect_oracle_eval_set.py` | Collect oracle rollout summaries and create a human review sheet |
+| `casa_merge_oracle_eval_runs.py` | Merge parallel Phase 2 rollout directories |
+| `casa_run_oracle_eval_batch.py` | Run a batch of Phase 2 oracle rollouts |
+| `casa_build_clean_visual_dataset.py` | Build the first clean visual-priority rollout dataset |
+| `casa_make_phase2_v2_scene_plan.py` | Create the Phase 2 v2 scene plan CSV |
+| `casa_phase2_v2_scene_placement_test.py` | Generate scenes without policy/video and validate initial placement |
+| `casa_run_phase2_v2_lane.py` | Run one Phase 2 v2 collection lane |
+| `casa_render_rollout_videos.py` | Render rollout logs into review videos without rerunning policy |
+| `casa_build_clean_visual_dataset_v2.py` | Build the Phase 2 v2 clean natural visual dataset |
+| `casa_package_clean_visual_dataset.py` | Copy accepted videos/labels into a review package |
+
+## Phase 3: Invocation Feasibility
+
+| Script | Purpose |
+|---|---|
+| `casa_build_invocation_dataset.py` | Build state-skill-label invocation datasets |
+| `casa_collect_phase3_feasibility.py` | Plan or run Phase 3 feasibility collection |
+| `casa_run_counterfactual_subset.py` | Run the Phase 3 counterfactual skill subset |
+| `casa_train_mini_critic.py` | Train a small Phase 3 safety critic |
+| `casa_audit_phase3_acceptance.py` | Audit Phase 3 acceptance artifacts |
+| `casa_write_phase3_report.py` | Write the Phase 3 go/no-go report |
+
+## Phase 4: Strict 50k Dataset And Raw Critic
+
+| Script | Purpose |
+|---|---|
+| `casa_make_phase4_collection_plan.py` | Create Phase 4 strict-clean collection recovery commands |
+| `casa_build_phase4_dataset.py` | Build Phase 4 train/calibration/test splits |
+| `casa_train_raw_critic.py` | Train and evaluate the Phase 4 raw critic |
+| `casa_audit_phase4_acceptance.py` | Audit Phase 4 dataset and critic acceptance |
+| `casa_write_phase4_report.py` | Write the Phase 4 implementation report |
+
+## Phase 5: Conformal And Online Evaluation
+
+| Script | Purpose |
+|---|---|
+| `casa_calibrate_phase5_conformal.py` | Calibrate global and per-skill conformal thresholds |
+| `casa_eval_phase5_baselines.py` | Evaluate the five baseline gates on the Phase 4 test split |
+| `casa_run_phase5_online_experiment.py` | Run the Phase 5 online five-baseline episode experiment |
+| `casa_run_phase5_online_lane.py` | Launch one online experiment lane |
+| `casa_run_phase5_online_main_lowmem.py` | Run/resume the low-concurrency online main experiment |
+| `casa_merge_phase5_online_results.py` | Merge Phase 5 online lane outputs |
+| `casa_audit_phase5_acceptance.py` | Audit Phase 5 acceptance criteria |
+| `casa_write_phase5_report.py` | Write the Phase 5 conformal baseline report |
+
+## Script Hygiene
+
+- Prefer adding new reusable behavior under `gear_sonic/casa/`.
+- Keep CLI scripts thin and phase-specific.
+- Write large artifacts to `outputs/`.
+- Add new CASA scripts to this index in the same change.

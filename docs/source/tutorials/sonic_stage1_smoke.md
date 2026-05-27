@@ -1,10 +1,10 @@
 # SONIC Stage 1 Smoke Test
 
-This runbook records the Stage 1 baseline check for SkillGuard-SONIC work:
+This runbook records the Stage 1 baseline check for CASA work:
 run the original SONIC / GEAR-SONIC deployment stack in MuJoCo, manually switch
 motions, and produce one merged episode log.
 
-Stage 1 intentionally does not add SkillGuard, automatic task scripts, safety
+Stage 1 intentionally does not add CASA gating, automatic task scripts, safety
 gating, or Isaac Lab integration.
 
 ## 1. Create a Run ID
@@ -12,7 +12,7 @@ gating, or Isaac Lab integration.
 Run from the repository root:
 
 ```bash
-cd /mnt/data/students/lph/GR00T-WholeBodyControl
+cd /path/to/CASA
 export RUN_ID="$(date +%Y%m%d_%H%M%S)"
 mkdir -p "outputs/sonic_stage1/${RUN_ID}"
 echo "${RUN_ID}"
@@ -24,7 +24,7 @@ terminal, run `export RUN_ID=<the printed value>` before launching commands.
 ## 2. Terminal 1: MuJoCo Sim
 
 ```bash
-cd /mnt/data/students/lph/GR00T-WholeBodyControl
+cd /path/to/CASA
 source .venv_sim/bin/activate
 
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
@@ -58,7 +58,7 @@ outputs/sonic_stage1/<RUN_ID>/sim/episode_summary.json
 ## 3. Terminal 2: C++ Deployment
 
 ```bash
-cd /mnt/data/students/lph/GR00T-WholeBodyControl/gear_sonic_deploy
+cd /path/to/CASA/gear_sonic_deploy
 source ../scripts/setup_no_root_env.sh
 
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
@@ -91,7 +91,7 @@ outputs/sonic_stage1/<RUN_ID>/target_motion.csv
 ## 4. Terminal 3: OpenCV Viewer
 
 ```bash
-cd /mnt/data/students/lph/GR00T-WholeBodyControl
+cd /path/to/CASA
 source .venv_sim/bin/activate
 
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
@@ -127,7 +127,7 @@ which is the manual confirmation that at least two motions were switched.
 Run from the repository root:
 
 ```bash
-cd /mnt/data/students/lph/GR00T-WholeBodyControl
+cd /path/to/CASA
 source .venv_sim/bin/activate
 
 python -u gear_sonic/scripts/summarize_sonic_stage1_episode.py \
