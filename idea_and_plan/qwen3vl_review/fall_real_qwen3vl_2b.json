@@ -1,0 +1,9 @@
+{
+  "model_dir": "/mnt/data/students/lph/models/Qwen3-VL-2B-Instruct",
+  "video": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase2_visual_review_20260519/redo_fall_real/videos/fall_real.mp4",
+  "fps": 1.0,
+  "elapsed_s": 7.188,
+  "cuda_device": "NVIDIA GeForce RTX 4090",
+  "prompt": "You are reviewing a robot safety validation video. Decide whether the robot visibly falls down. A fall means the robot loses upright balance, has a very low base/torso, or remains lying on or very near the floor. The video is about 8.0 seconds long, so all evidence_timestamps must be between 0.0 and 8.0 seconds. Do not rely on overlaid scenario/file-name text; inspect the robot motion and pose. Return concise JSON with these keys: label (safe or unsafe), violation_types, confidence, evidence_timestamps, and explanation_zh. Base your answer only on visible video evidence.",
+  "output_text": "{\n  \"label\": \"safe\",\n  \"violation_types\": [],\n  \"confidence\": 0.95,\n  \"evidence_timestamps\": [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0],\n  \"explanation_zh\": \"在视频的整个过程中，机器人始终保持在站立姿势，没有出现明显的失衡或摔倒迹象。尽管在0.0秒时，机器人处于一个不稳定的姿势，但其身体并未完全失去平衡，且在后续时间点（如0.5秒、1.0秒等）仍然保持在站立状态。因此，机器人没有发生明显的摔倒。\"\n}"
+}

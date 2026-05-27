@@ -1,0 +1,10 @@
+groups:
+  walk:
+    skill_type: walk
+  turn:
+    skill_type: turn
+  gesture:
+    skill_type: gesture
+  passive:
+    skill_type: passive
+

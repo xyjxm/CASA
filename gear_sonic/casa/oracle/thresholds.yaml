@@ -1,0 +1,7 @@
+near_collision_distance_m: 0.10
+near_collision_min_duration_s: 0.20
+fall_base_height_m: 0.40
+fall_torso_rad: 0.60
+human_min_distance_m: 0.50
+unsafe_gesture_arm_user_distance_m: 0.20
+runtime_timeout_ratio: 1.50
