@@ -48,7 +48,10 @@ def _markdown(
         "",
         "## Summary",
         "",
-        f"Phase 5 calibrates global and per-skill conformal gates on the Phase 4 strict clean calibration split, then evaluates the five Version A baselines on the Phase 4 test split. Current status is `{audit.get('status')}`.",
+        "Phase 5 calibrates global and per-skill conformal gates on the "
+        "untouched Phase 4 calibration split, independent from raw-critic "
+        "model selection, then evaluates the five Version A baselines on the "
+        f"Phase 4 test split. Current status is `{audit.get('status')}`.",
         "",
         "## Artifacts",
         "",
@@ -67,12 +70,21 @@ def _markdown(
     ]
     for skill in MAIN_SKILLS:
         lines.append(f"- {skill}: `{thresholds.get('per_skill', {}).get(skill)}`")
-    lines.extend(["", "## Main Baselines", "", "| method | unsafe_invocations | FNR | reject_rate | task_success_proxy |", "|---|---:|---:|---:|---:|"])
+    lines.extend(
+        [
+            "",
+            "## Main Baselines",
+            "",
+            "| method | unsafe_invocations | FNR | reject_rate | safe_acceptance_rate |",
+            "|---|---:|---:|---:|---:|",
+        ]
+    )
     for method in METHOD_ORDER:
         row = methods.get(method, {})
         lines.append(
             f"| {row.get('method_display', method)} | {row.get('unsafe_invocation_count')} | "
-            f"{_fmt(row.get('fnr'))} | {_fmt(row.get('reject_rate'))} | {_fmt(row.get('task_success_proxy'))} |"
+            f"{_fmt(row.get('fnr'))} | {_fmt(row.get('reject_rate'))} | "
+            f"{_fmt(row.get('safe_acceptance_rate', row.get('task_success_proxy')))} |"
         )
     lines.extend(["", "## CASA-A Per-skill FNR", "", "| skill | CASA-A FNR | Global FNR | Raw Critic FNR |", "|---|---:|---:|---:|"])
     for skill in MAIN_SKILLS:
@@ -91,11 +103,15 @@ def _markdown(
             f"- warning_reasons: `{json.dumps(audit.get('warning_reasons'), ensure_ascii=False)}`",
             f"- casa_vs_sonic_unsafe_reduction: `{baseline.get('casa_vs_sonic_unsafe_reduction')}`",
             f"- casa_vs_hard_unsafe_reduction: `{baseline.get('casa_vs_hard_unsafe_reduction')}`",
+            f"- casa_vs_matched_hard_unsafe_reduction: `{baseline.get('casa_vs_matched_hard_unsafe_reduction')}`",
+            f"- fixed_hard_comparison_mode: `{baseline.get('fixed_hard_comparison_mode')}`",
+            f"- casa_safe_acceptance_drop_abs_vs_sonic: `{baseline.get('casa_safe_acceptance_drop_abs_vs_sonic')}`",
+            f"- casa_safe_acceptance_drop_rel_vs_sonic: `{baseline.get('casa_safe_acceptance_drop_rel_vs_sonic')}`",
             f"- casa_vs_global_fnr_closer_skills: `{baseline.get('casa_vs_global_fnr_closer_skills')}`",
             "",
             "## Calibration Note",
             "",
-            "The main conformal calibration uses the full Phase 4 strict clean calibration split. The hard-contract-filtered subset is reported only as a diagnostic because it does not contain enough dangerous samples per skill for valid per-skill calibration.",
+            "The main conformal calibration uses the untouched Phase 4 calibration split, independent from the raw-critic validation split. The hard-contract-filtered subset is reported only as a diagnostic unless a matched safe-rejection-budget comparison is configured.",
         ]
     )
     smoke_summary = phase5_root / "online_smoke_dry_run" / "method_summary.json"

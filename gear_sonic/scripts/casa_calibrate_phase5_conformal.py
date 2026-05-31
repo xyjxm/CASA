@@ -14,10 +14,13 @@ if str(REPO_ROOT) not in sys.path:
 from gear_sonic.casa.phase5 import (  # noqa: E402
     ALPHA_DEFAULT,
     MAIN_SKILLS,
+    acceptance_search_thresholds,
     calibration_table_rows,
     conformal_thresholds,
     read_prediction_rows,
+    split_role,
     threshold_for_target_fnr,
+    validate_phase5_prediction_rows,
     write_csv,
     write_json,
 )
@@ -30,10 +33,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--alpha", type=float, default=ALPHA_DEFAULT)
     parser.add_argument(
         "--selection-mode",
-        choices=["max_fnr", "conservative"],
+        choices=["max_fnr", "conservative", "acceptance_search"],
         default="max_fnr",
-        help="max_fnr uses the alpha conformal threshold; conservative can be used for diagnostic over-rejection studies.",
+        help="max_fnr uses the alpha conformal threshold; acceptance_search also constrains safe rejection.",
     )
+    parser.add_argument("--fnr-margin", type=float, default=0.0)
+    parser.add_argument("--max-safe-reject-rate", type=float, default=0.10)
+    parser.add_argument("--min-unsafe-calibration-per-skill", type=int, default=200)
     return parser.parse_args()
 
 
@@ -41,8 +47,23 @@ def main() -> None:
     args = parse_args()
     predictions_csv = args.predictions_csv or args.phase4_root / "raw_critic" / "predictions.csv"
     rows = read_prediction_rows(predictions_csv)
+    split_audit = validate_phase5_prediction_rows(
+        rows,
+        min_unsafe_calibration_per_skill=args.min_unsafe_calibration_per_skill,
+    )
     max_thresholds = conformal_thresholds(rows, args.alpha)
-    thresholds = max_thresholds if args.selection_mode == "max_fnr" else _conservative_thresholds(rows, max_thresholds)
+    selection_diagnostics: dict = {}
+    if args.selection_mode == "max_fnr":
+        thresholds = max_thresholds
+    elif args.selection_mode == "acceptance_search":
+        thresholds, selection_diagnostics = acceptance_search_thresholds(
+            rows,
+            args.alpha,
+            fnr_margin=args.fnr_margin,
+            max_safe_reject_rate=args.max_safe_reject_rate,
+        )
+    else:
+        thresholds = _conservative_thresholds(rows, max_thresholds)
     table = calibration_table_rows(rows, thresholds, alpha=args.alpha)
     diagnostics = _hard_contract_subset_diagnostics(rows)
     checks = {
@@ -54,17 +75,30 @@ def main() -> None:
         "calibration_each_skill_fnr_le_alpha": all(
             row["fnr"] <= args.alpha + 1e-12 for row in table if row["skill_name"] in MAIN_SKILLS
         ),
+        "calibration_each_skill_safe_reject_rate_le_budget": (
+            args.selection_mode != "acceptance_search"
+            or all(
+                (1.0 - row["safe_acceptance_rate"]) <= args.max_safe_reject_rate + 1e-12
+                for row in table
+                if row["skill_name"] in MAIN_SKILLS
+            )
+        ),
     }
     output = {
         "phase": "CASA Phase5 conformal calibration",
         "phase4_root": str(args.phase4_root),
         "predictions_csv": str(predictions_csv),
         "alpha": args.alpha,
-        "calibration_distribution": "phase4_strict_clean_full_calibration_split",
+        "calibration_distribution": "untouched_phase4_conformal_calibration_split",
         "selection_mode": args.selection_mode,
+        "fnr_margin": args.fnr_margin,
+        "max_safe_reject_rate": args.max_safe_reject_rate,
+        "min_unsafe_calibration_per_skill": args.min_unsafe_calibration_per_skill,
         "gate_rule": "reject if raw_critic_risk >= threshold; allow otherwise",
         "thresholds": thresholds,
         "max_fnr_thresholds": max_thresholds,
+        "selection_diagnostics": selection_diagnostics,
+        "split_audit": split_audit,
         "conservative_target_fnr": _CONSERVATIVE_TARGET_FNR if args.selection_mode == "conservative" else None,
         "conservative_global_threshold_cap": _CONSERVATIVE_GLOBAL_THRESHOLD_CAP
         if args.selection_mode == "conservative"
@@ -82,6 +116,7 @@ def main() -> None:
         "notes": [
             "Hard Contract is retained as a Phase 5 baseline, not as the conformal calibration filter.",
             "The hard_contract_fixed_reject==0 calibration subset is reported only as a diagnostic.",
+            "Raw critic model selection must use critic_val/val; this calibration step uses only the untouched calibration role.",
             "max_fnr mode is the main Phase 5 setting: it uses the largest threshold that satisfies alpha FNR control.",
         ],
     }
@@ -93,7 +128,7 @@ def main() -> None:
 
 
 def _hard_contract_subset_diagnostics(rows: list[dict]) -> dict:
-    calibration = [row for row in rows if str(row.get("phase4_split")) == "calibration"]
+    calibration = [row for row in rows if split_role(row.get("phase4_split")) == "calibration"]
     accepted = [row for row in calibration if not bool(row.get("hard_contract_fixed_reject_bool"))]
     by_skill = {}
     for skill in MAIN_SKILLS:
@@ -123,7 +158,7 @@ _CONSERVATIVE_GLOBAL_THRESHOLD_CAP = 0.5
 
 
 def _conservative_thresholds(rows: list[dict], max_thresholds: dict) -> dict:
-    calibration = [row for row in rows if str(row.get("phase4_split")) == "calibration"]
+    calibration = [row for row in rows if split_role(row.get("phase4_split")) == "calibration"]
     per_skill = {}
     for skill in MAIN_SKILLS:
         skill_rows = [row for row in calibration if row.get("skill_name") == skill]

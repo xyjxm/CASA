@@ -2,8 +2,8 @@
 
 Phase 4 has stricter dataset acceptance criteria than the Phase 3 feasibility
 dataset. This builder reuses the same state-skill-label feature extractor, but
-emits Phase 4 artifacts with train/calibration/test splits and an explicit
-strict-vs-bootstrap status.
+emits Phase 4 artifacts with train/critic_val/calibration/test roles and an
+explicit strict-vs-bootstrap status.
 """
 
 from __future__ import annotations
@@ -82,6 +82,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--positive-rate-max", type=float, default=0.50)
     parser.add_argument("--pre-window-seconds", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=1234)
+    parser.add_argument(
+        "--conformal-calibration-train-fraction",
+        type=float,
+        default=0.15 / 0.70,
+        help="Fraction of original train split groups reserved as untouched Phase 5 conformal calibration.",
+    )
     parser.add_argument("--current-violation-grace-seconds", type=float, default=0.05)
     parser.add_argument(
         "--include-current-violations",
@@ -129,9 +135,11 @@ def main() -> None:
         current_violation_grace_seconds=args.current_violation_grace_seconds,
     )
 
-    full_splits = np.asarray(
-        ["calibration" if str(split) == "val" else str(split) for split in full_result.splits],
-        dtype="<U11",
+    full_splits = _phase4_role_splits(
+        full_result.splits,
+        full_result.rows,
+        seed=args.seed,
+        calibration_train_fraction=args.conformal_calibration_train_fraction,
     )
     clean_indices, excluded_rows, runtime_quarantine = _partition_clean_indices(
         full_result.rows,
@@ -146,7 +154,7 @@ def main() -> None:
     result = _subset_result(full_result, selected_indices, full_splits)
     phase4_splits = np.asarray(
         [str(split) for split in result.splits],
-        dtype="<U11",
+        dtype="<U16",
     )
     for row, split in zip(result.rows, phase4_splits):
         row["phase4_split"] = str(split)
@@ -232,12 +240,17 @@ def _write_split_outputs(
 ) -> None:
     split_to_filename = {
         "train": "train_invocations.csv",
+        "critic_val": "critic_val_invocations.csv",
+        "val": "val_invocations.csv",
         "calibration": "calibration_invocations.csv",
+        "conformal_calibration": "conformal_calibration_invocations.csv",
         "test": "test_invocations.csv",
     }
     feature_names = np.asarray(feature_schema["feature_names"])
     for split, filename in split_to_filename.items():
         indices = np.where(splits == split)[0]
+        if len(indices) == 0 and split not in {"train", "critic_val", "calibration", "test"}:
+            continue
         split_rows = [rows[int(index)] for index in indices]
         _write_csv(dataset_dir / filename, split_rows)
         np.savez_compressed(
@@ -398,7 +411,7 @@ def _select_phase4_indices(
         "cross_skill_fill_count": max(0, len(selected) - sum(min(stats["available"], args.skill_quota) for stats in per_skill_summary.values())),
         "notes": [
             "Selection first tries a balanced per-skill quota, then cross-fills from remaining clean candidates only if needed for 50k.",
-            "Unsafe selection is split-aware: calibration unsafe samples are prioritized before other unsafe samples.",
+            "Unsafe selection is split-aware: untouched conformal calibration unsafe samples are prioritized before other unsafe samples.",
         ],
     }
     return selected, summary
@@ -480,6 +493,51 @@ def _subset_result(full_result: DatasetBuildResult, indices: list[int], splits: 
         feature_schema=full_result.feature_schema,
         summary=full_result.summary,
     )
+
+
+def _phase4_role_splits(
+    splits: np.ndarray,
+    rows: list[dict[str, Any]],
+    *,
+    seed: int,
+    calibration_train_fraction: float,
+) -> np.ndarray:
+    """Create independent Phase 4/5 split roles from rollout-level splits.
+
+    The base dataset helper emits train/val/test. Phase 4 now keeps val as the
+    raw-critic validation role and reserves a deterministic subset of train
+    rollout groups as the untouched conformal calibration role.
+    """
+
+    base = np.asarray([str(split) for split in splits], dtype="<U16")
+    roles = np.asarray(["" for _ in range(len(base))], dtype="<U16")
+    for index, split in enumerate(base):
+        if split == "val":
+            roles[index] = "critic_val"
+        elif split in {"train", "test", "critic_val", "calibration", "conformal_calibration"}:
+            roles[index] = split
+        else:
+            roles[index] = split
+
+    train_groups = sorted(
+        {
+            str(rows[index].get("split_group", ""))
+            for index, split in enumerate(base)
+            if split == "train" and str(rows[index].get("split_group", ""))
+        }
+    )
+    if len(train_groups) > 1 and not np.any((roles == "calibration") | (roles == "conformal_calibration")):
+        rng = random.Random(seed)
+        rng.shuffle(train_groups)
+        calibration_group_count = int(round(len(train_groups) * calibration_train_fraction))
+        calibration_group_count = min(max(1, calibration_group_count), len(train_groups) - 1)
+        calibration_groups = set(train_groups[:calibration_group_count])
+        for index, row in enumerate(rows):
+            if base[index] == "train" and str(row.get("split_group", "")) in calibration_groups:
+                roles[index] = "calibration"
+    if not np.any(roles == "calibration") and np.any(roles == "conformal_calibration"):
+        roles = np.asarray(["calibration" if split == "conformal_calibration" else split for split in roles], dtype="<U16")
+    return roles
 
 
 def _phase4_summary(
@@ -582,7 +640,8 @@ def _phase4_summary(
         "split_audit_path": "split_audit.json",
         "notes": [
             "Phase 4 strict acceptance requires >=50k selected samples and >=10k samples per main skill.",
-            "The calibration split is the deterministic 15% rollout-level split formerly named val in Phase 3 utilities.",
+            "The critic_val split is the deterministic rollout-level split formerly named val in Phase 3 utilities.",
+            "The calibration split is an untouched deterministic subset of train rollout groups reserved for Phase 5 conformal thresholds.",
             "When strict_go is false, outputs are valid for bootstrap/training smoke tests but not final Phase 4 acceptance.",
             "Strict clean mode excludes runtime_timeout, injected_latency_ms, and latency/runtime artifact sources from the main dataset.",
         ],
@@ -606,7 +665,7 @@ def _per_skill_counts(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 def _per_split_counts(rows: list[dict[str, Any]], splits: np.ndarray) -> dict[str, dict[str, Any]]:
     output: dict[str, dict[str, Any]] = {}
-    for split in ("train", "calibration", "test"):
+    for split in ("train", "critic_val", "calibration", "test"):
         split_rows = [row for row, row_split in zip(rows, splits) if str(row_split) == split]
         counts = Counter(str(row.get("safe_label", "")) for row in split_rows)
         total = len(split_rows)
@@ -639,7 +698,7 @@ def _split_audit(rows: list[dict[str, Any]], splits: np.ndarray) -> dict[str, An
             group_intersections[f"{left}_vs_{right}"] = len(groups_by_split[left] & groups_by_split[right])
             sim_intersections[f"{left}_vs_{right}"] = len(sim_by_split[left] & sim_by_split[right])
     return {
-        "protocol": "rollout-level deterministic hash split using split_group=source_root:run_id:rollout_id",
+        "protocol": "rollout-level deterministic split roles using split_group=source_root:run_id:rollout_id; val is critic_val and calibration is reserved from train groups",
         "split_counts": dict(Counter(str(item) for item in splits)),
         "split_group_count": len(split_by_group),
         "split_group_cross_split_count": sum(1 for values in split_by_group.values() if len(values) > 1),

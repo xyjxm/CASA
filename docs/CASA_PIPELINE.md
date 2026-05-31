@@ -97,6 +97,18 @@ Strict Phase 4 excludes runtime timeouts, injected latency, artifact sources,
 missing critical fields, and split leakage. The main acceptance file is
 `phase4_go_no_go.json`.
 
+Phase 4 preserves independent roles for Phase 5:
+
+- `train`: raw critic fitting.
+- `critic_val` / `val`: raw critic model selection and early stopping.
+- `calibration` / `conformal_calibration`: untouched conformal threshold calibration.
+- `test`: final held-out evaluation.
+
+The raw critic must not use the conformal calibration role for best-epoch
+selection. If an older dataset has no explicit critic validation role,
+`casa_train_raw_critic.py` deterministically carves one from `train` and leaves
+`calibration` untouched.
+
 ## Phase 5: Conformal Gates And Baselines
 
 Goal: calibrate global and per-skill conformal thresholds and evaluate five
@@ -115,6 +127,32 @@ Representative scripts:
 
 The five methods are SONIC-only, SONIC plus hard contract, SONIC plus raw critic,
 SONIC plus global conformal, and SONIC plus CASA-A per-skill conformal.
+
+Phase 5 validates `raw_critic/predictions.csv` before threshold selection. The
+CSV must contain `sample_id`, `phase4_split`, `skill_name`, `label`,
+`raw_critic_risk`, `hard_contract_score`, and `hard_contract_fixed_reject`;
+labels must be exactly `0` or `1`; risk and hard-contract scores must be finite;
+all main skills must appear in calibration and test; and calibration must have
+enough unsafe samples per skill.
+
+Threshold selection modes:
+
+- `max_fnr`: largest threshold satisfying calibration FNR <= alpha.
+- `conservative`: diagnostic lower-FNR thresholds.
+- `acceptance_search`: searches thresholds subject to calibration FNR and
+  safe-rejection budget constraints, then minimizes accepted unsafe samples.
+
+Offline reports use `safe_acceptance_rate` for safe-sample acceptance /
+false-positive control. This is not real task completion; online reports use
+`task_success_rate` when episode completion labels exist.
+
+Hard-contract comparisons distinguish blocking checks from diagnostics. If the
+fixed hard contract accepts zero unsafe examples, relative unsafe reduction is
+undefined and is reported as `null` rather than failing as `0.0`. If the fixed
+hard contract over-rejects safe samples, the fixed comparison is diagnostic and
+the matched safe-rejection-budget hard comparison is used for the fair blocking
+check. CASA-vs-global FNR closeness is diagnostic; the hard safety requirement
+is one-sided per-skill FNR control.
 
 ## Outputs And Reproducibility
 

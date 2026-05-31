@@ -21,6 +21,9 @@ from gear_sonic.casa.phase5 import (  # noqa: E402
     evaluate_method,
     read_json,
     read_prediction_rows,
+    relative_reduction,
+    safe_reject_budget_metrics,
+    validate_phase5_prediction_rows,
     write_csv,
     write_json,
 )
@@ -42,6 +45,7 @@ def main() -> None:
     predictions_csv = args.predictions_csv or args.phase4_root / "raw_critic" / "predictions.csv"
     thresholds_json = args.thresholds_json or args.phase5_root / "conformal_thresholds.json"
     rows = read_prediction_rows(predictions_csv)
+    validate_phase5_prediction_rows(rows, min_unsafe_calibration_per_skill=0)
     thresholds = read_json(thresholds_json)["thresholds"]
     split_rows = [row for row in rows if str(row.get("phase4_split")) == args.split]
     if not split_rows:
@@ -54,7 +58,7 @@ def main() -> None:
             skill_rows = [row for row in split_rows if row.get("skill_name") == skill]
             per_skill_rows.append(evaluate_method(skill_rows, method, thresholds, split=args.split, skill_name=skill))
     curve_rows = _rejection_risk_curve(split_rows, args.split)
-    summary = _summary(baseline_rows, per_skill_rows, args.alpha)
+    summary = _summary(split_rows, baseline_rows, per_skill_rows, args.alpha)
 
     args.phase5_root.mkdir(parents=True, exist_ok=True)
     write_csv(args.phase5_root / "baseline_results.csv", baseline_rows)
@@ -89,7 +93,7 @@ def _rejection_risk_curve(rows: list[dict], split: str) -> list[dict]:
     return output
 
 
-def _summary(baseline_rows: list[dict], per_skill_rows: list[dict], alpha: float) -> dict:
+def _summary(split_rows: list[dict], baseline_rows: list[dict], per_skill_rows: list[dict], alpha: float) -> dict:
     by_method = {row["method"]: row for row in baseline_rows}
     casa = by_method["casa_a_per_skill"]
     sonic = by_method["sonic_only"]
@@ -99,12 +103,39 @@ def _summary(baseline_rows: list[dict], per_skill_rows: list[dict], alpha: float
         method: {row["skill_name"]: row for row in per_skill_rows if row["method"] == method}
         for method in METHOD_ORDER
     }
+    casa_vs_global_diagnostics = {}
     casa_vs_global_better = []
     for skill in MAIN_SKILLS:
-        casa_dist = abs(float(per_skill["casa_a_per_skill"][skill]["fnr"]) - alpha)
-        global_dist = abs(float(per_skill["global_conformal"][skill]["fnr"]) - alpha)
-        if casa_dist < global_dist:
+        casa_fnr = float(per_skill["casa_a_per_skill"][skill]["fnr"])
+        global_fnr = float(per_skill["global_conformal"][skill]["fnr"])
+        casa_dist = abs(casa_fnr - alpha)
+        global_dist = abs(global_fnr - alpha)
+        casa_closer = casa_dist < global_dist
+        if casa_closer:
             casa_vs_global_better.append(skill)
+        casa_vs_global_diagnostics[skill] = {
+            "casa_fnr": casa_fnr,
+            "global_fnr": global_fnr,
+            "casa_distance_to_alpha": casa_dist,
+            "global_distance_to_alpha": global_dist,
+            "casa_closer_to_alpha": casa_closer,
+            "casa_more_conservative": casa_fnr < global_fnr,
+        }
+    casa_safe_acceptance = float(casa["safe_acceptance_rate"])
+    sonic_safe_acceptance = float(sonic["safe_acceptance_rate"])
+    safe_drop_abs = sonic_safe_acceptance - casa_safe_acceptance
+    safe_drop_rel = safe_drop_abs / sonic_safe_acceptance if sonic_safe_acceptance else 0.0
+    matched_hard = safe_reject_budget_metrics(
+        split_rows,
+        lambda row: float(row["hard_contract_score_float"]),
+        method="hard_contract_matched_safe_budget",
+        split=casa["split"],
+        max_safe_reject_rate=1.0 - casa_safe_acceptance,
+    )
+    fixed_hard_safe_acceptance = float(hard["safe_acceptance_rate"])
+    fixed_hard_comparison_mode = "blocking"
+    if hard["unsafe_invocation_count"] <= 0 or fixed_hard_safe_acceptance < casa_safe_acceptance - 1e-12:
+        fixed_hard_comparison_mode = "diagnostic"
     return {
         "phase": "CASA Phase5 baseline evaluation",
         "split": casa["split"],
@@ -112,31 +143,36 @@ def _summary(baseline_rows: list[dict], per_skill_rows: list[dict], alpha: float
         "test_count": casa["count"],
         "unsafe_total": casa["unsafe_total"],
         "methods": by_method,
-        "casa_vs_sonic_unsafe_reduction": _reduction(
+        "casa_vs_sonic_unsafe_reduction": relative_reduction(
             sonic["unsafe_invocation_count"], casa["unsafe_invocation_count"]
         ),
-        "casa_vs_hard_unsafe_reduction": _reduction(
+        "casa_vs_hard_unsafe_reduction": relative_reduction(
             hard["unsafe_invocation_count"], casa["unsafe_invocation_count"]
         ),
-        "casa_vs_global_unsafe_reduction": _reduction(
+        "casa_vs_global_unsafe_reduction": relative_reduction(
             global_conf["unsafe_invocation_count"], casa["unsafe_invocation_count"]
         ),
-        "casa_task_success_drop_abs_vs_sonic": sonic["task_success_proxy"] - casa["task_success_proxy"],
-        "casa_task_success_drop_rel_vs_sonic": (
-            (sonic["task_success_proxy"] - casa["task_success_proxy"]) / sonic["task_success_proxy"]
-            if sonic["task_success_proxy"]
-            else 0.0
+        "hard_contract_matched_safe_budget": matched_hard,
+        "casa_vs_matched_hard_unsafe_reduction": relative_reduction(
+            matched_hard["unsafe_invocation_count"], casa["unsafe_invocation_count"]
         ),
+        "fixed_hard_comparison_mode": fixed_hard_comparison_mode,
+        "fixed_hard_comparison_reason": (
+            "undefined_relative_reduction"
+            if hard["unsafe_invocation_count"] <= 0
+            else "fixed_hard_over_rejects_safe_samples"
+            if fixed_hard_comparison_mode == "diagnostic"
+            else "fixed_hard_safe_acceptance_not_lower_than_casa"
+        ),
+        "casa_safe_acceptance_drop_abs_vs_sonic": safe_drop_abs,
+        "casa_safe_acceptance_drop_rel_vs_sonic": safe_drop_rel,
+        "casa_task_success_drop_abs_vs_sonic": safe_drop_abs,
+        "casa_task_success_drop_rel_vs_sonic": safe_drop_rel,
         "casa_vs_global_fnr_closer_skills": casa_vs_global_better,
         "casa_vs_global_fnr_closer_skill_count": len(casa_vs_global_better),
+        "casa_vs_global_fnr_diagnostics": casa_vs_global_diagnostics,
         "per_skill": per_skill,
     }
-
-
-def _reduction(baseline_unsafe: int, method_unsafe: int) -> float:
-    if baseline_unsafe <= 0:
-        return 0.0
-    return (baseline_unsafe - method_unsafe) / baseline_unsafe
 
 
 if __name__ == "__main__":
