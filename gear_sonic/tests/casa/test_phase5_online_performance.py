@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import argparse
+from collections import defaultdict
 import csv
 import json
 from pathlib import Path
 import subprocess
 import sys
 
+from gear_sonic.scripts import casa_run_phase5_online_main_lowmem as lowmem
 from gear_sonic.casa.phase5_online import build_online_audit, read_csv_rows
 from gear_sonic.casa.phase5_online_diagnostics import build_failure_breakdown
 from gear_sonic.casa.phase5_online_sweep import evaluate_sweep_candidates, pareto_candidates, sweep_report
@@ -199,6 +202,36 @@ def test_sweep_cli_writes_planned_grid(tmp_path: Path) -> None:
     report = json.loads((output_dir / "phase5_online_policy_sweep.json").read_text())
     assert report["planned_count"] == 1
     assert (output_dir / "phase5_online_policy_sweep.csv").exists()
+
+
+def test_lowmem_runner_clamps_cyclonedds_domain_pool() -> None:
+    assert lowmem.safe_domain_pool_size(base_domain_id=180, requested_pool_size=70) == 53
+
+    old_methods = list(lowmem.METHODS)
+    old_seeds = list(lowmem.SEEDS)
+    try:
+        lowmem.METHODS = ["sonic_only"]
+        lowmem.SEEDS = list(range(60))
+        args = argparse.Namespace(
+            online_root=Path("unused"),
+            episodes_per_seed=1,
+            chunk_size=1,
+            base_zmq_port=8800,
+            base_domain_id=180,
+            domain_pool_size=lowmem.safe_domain_pool_size(180, 70),
+            randomize_method_order=False,
+            method_order_seed=0,
+        )
+        jobs = lowmem.build_jobs(args, defaultdict(set))
+    finally:
+        lowmem.METHODS = old_methods
+        lowmem.SEEDS = old_seeds
+
+    domains = [job["domain"] for job in jobs]
+    assert max(domains) == 232
+    assert 233 not in domains
+    assert domains[52] == 232
+    assert domains[53] == 180
 
 
 def test_strict_online_audit_thresholds_are_not_weakened(tmp_path: Path) -> None:

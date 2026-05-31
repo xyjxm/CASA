@@ -15,6 +15,7 @@ from typing import Any
 
 METHODS = ["sonic_only", "hard_contract", "raw_critic_0p5", "global_conformal", "casa_a_per_skill"]
 SEEDS = [1234, 1235, 1236, 1237, 1238]
+CYCLONEDDS_MAX_UNICAST_DOMAIN_ID = 232
 
 
 def parse_args() -> argparse.Namespace:
@@ -73,6 +74,18 @@ def main() -> None:
     devices = [item.strip() for item in args.cuda_devices.split(",") if item.strip()]
     if not devices:
         raise SystemExit("--cuda-devices must not be empty")
+    try:
+        effective_domain_pool_size = safe_domain_pool_size(args.base_domain_id, args.domain_pool_size)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    if effective_domain_pool_size != args.domain_pool_size:
+        print(
+            f"[lowmem] domain-pool-size clamped from {args.domain_pool_size} "
+            f"to {effective_domain_pool_size} because CycloneDDS unicast ports "
+            f"overflow above domain {CYCLONEDDS_MAX_UNICAST_DOMAIN_ID}",
+            flush=True,
+        )
+        args.domain_pool_size = effective_domain_pool_size
     expected_total = len(METHODS) * len(SEEDS) * args.episodes_per_seed
     for sweep in range(1, max(1, int(args.max_sweeps)) + 1):
         done = completed_map(args.online_root)
@@ -160,6 +173,20 @@ def build_jobs(args: argparse.Namespace, done: dict[tuple[str, int], set[int]]) 
         spec.update({"index": job_index, "domain": domain, "port": port})
         jobs.append(spec)
     return jobs
+
+
+def safe_domain_pool_size(base_domain_id: int, requested_pool_size: int) -> int:
+    if base_domain_id < 0:
+        raise ValueError("--base-domain-id must be non-negative")
+    if requested_pool_size < 1:
+        raise ValueError("--domain-pool-size must be at least 1")
+    max_pool_size = CYCLONEDDS_MAX_UNICAST_DOMAIN_ID - base_domain_id + 1
+    if max_pool_size < 1:
+        raise ValueError(
+            "--base-domain-id exceeds the CycloneDDS unicast-safe maximum "
+            f"({CYCLONEDDS_MAX_UNICAST_DOMAIN_ID})"
+        )
+    return min(requested_pool_size, max_pool_size)
 
 
 def run_jobs(
