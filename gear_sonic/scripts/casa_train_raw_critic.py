@@ -8,7 +8,6 @@ import json
 import math
 import random
 import sys
-from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +21,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from gear_sonic.casa.dataset import load_dataset_npz
+from gear_sonic.casa.phase5 import relative_reduction, split_indices_for_phase5
 
 
 MAIN_SKILLS = ("walk", "turn", "gesture", "passive")
@@ -127,20 +127,20 @@ def main() -> None:
     best_key = (-1.0, -math.inf)
     for epoch in range(1, args.epochs + 1):
         train_loss = _train_epoch(model, train_loader, criterion, optimizer, device)
-        calibration_probs = _predict(model, Xn, indices["calibration"], device)
-        calibration_metrics = _binary_metrics(y[indices["calibration"]], calibration_probs)
+        critic_val_probs = _predict(model, Xn, indices["critic_val"], device)
+        critic_val_metrics = _binary_metrics(y[indices["critic_val"]], critic_val_probs)
         current_key = (
-            1.0 if calibration_metrics["auroc_available"] else 0.0,
-            float(calibration_metrics["auroc"]) - float(calibration_metrics["brier"]),
+            1.0 if critic_val_metrics["auroc_available"] else 0.0,
+            float(critic_val_metrics["auroc"]) - float(critic_val_metrics["brier"]),
         )
         curves.append(
             {
                 "epoch": epoch,
                 "train_loss": train_loss,
-                "calibration_auroc": calibration_metrics["auroc"],
-                "calibration_auprc": calibration_metrics["auprc"],
-                "calibration_brier": calibration_metrics["brier"],
-                "calibration_ece": calibration_metrics["ece"],
+                "critic_val_auroc": critic_val_metrics["auroc"],
+                "critic_val_auprc": critic_val_metrics["auprc"],
+                "critic_val_brier": critic_val_metrics["brier"],
+                "critic_val_ece": critic_val_metrics["ece"],
             }
         )
         if current_key >= best_key:
@@ -166,6 +166,14 @@ def main() -> None:
         "dataset_dir": str(args.dataset_dir),
         "sample_count": int(len(y)),
         "split_counts": {name: int(len(value)) for name, value in indices.items()},
+        "split_roles": {
+            "model_selection": "critic_val",
+            "conformal_calibration": "calibration",
+            "notes": [
+                "Raw critic best-epoch selection uses critic_val only.",
+                "The conformal calibration split is held out for Phase 5 threshold calibration.",
+            ],
+        },
         "device": str(device),
         "epochs": args.epochs,
         "hidden_dim": args.hidden_dim,
@@ -186,6 +194,7 @@ def main() -> None:
             "feature_schema": data["schema"],
             "model_class": "RawRiskCritic",
             "args": vars(args),
+            "split_roles": metrics["split_roles"],
         },
         args.output_dir / "raw_critic.pt",
     )
@@ -212,21 +221,8 @@ def _finite_array(values: np.ndarray) -> np.ndarray:
 
 
 def _split_indices(splits: np.ndarray, count: int, seed: int) -> dict[str, np.ndarray]:
-    train = np.where(splits == "train")[0]
-    calibration = np.where((splits == "calibration") | (splits == "val"))[0]
-    test = np.where(splits == "test")[0]
-    if len(train) and len(calibration) and len(test):
-        return {"train": train, "calibration": calibration, "test": test}
-    rng = np.random.default_rng(seed)
-    all_indices = np.arange(count)
-    rng.shuffle(all_indices)
-    train_end = max(1, int(0.7 * count))
-    calibration_end = max(train_end + 1, int(0.85 * count)) if count > 2 else train_end
-    return {
-        "train": all_indices[:train_end],
-        "calibration": all_indices[train_end:calibration_end],
-        "test": all_indices[calibration_end:],
-    }
+    del count
+    return split_indices_for_phase5(splits, seed)
 
 
 def _loader(X: np.ndarray, y: np.ndarray, indices: np.ndarray, batch_size: int, *, shuffle: bool) -> DataLoader:
@@ -389,14 +385,16 @@ def _pareto_analysis(
     for budget in (0.10, 0.20):
         raw_unsafe = int(raw_by_budget.get(budget, {}).get("unsafe_invocation_count", 0))
         hard_unsafe = int(hard_by_budget.get(budget, {}).get("unsafe_invocation_count", 0))
-        reductions[str(budget)] = ((hard_unsafe - raw_unsafe) / hard_unsafe) if hard_unsafe > 0 else 0.0
+        reductions[str(budget)] = relative_reduction(hard_unsafe, raw_unsafe)
     return rows, {
         "test_count": int(len(y_test)),
         "test_unsafe_count": total_unsafe,
         "test_safe_count": total_safe,
         "reject_budgets": list(REJECT_BUDGETS),
         "raw_vs_hard_unsafe_reduction": reductions,
-        "raw_reduces_unsafe_ge_15pct_at_10_or_20": any(value >= 0.15 for value in reductions.values()),
+        "raw_reduces_unsafe_ge_15pct_at_10_or_20": any(
+            value is not None and value >= 0.15 for value in reductions.values()
+        ),
         "hard_contract_fixed": _fixed_row("hard_contract_fixed", y_test, fixed_test),
     }
 
@@ -422,6 +420,7 @@ def _row_from_reject(method: str, reject_budget: float, labels: np.ndarray, reje
     safe_total = int((labels == 0).sum())
     accepted_safe = int(((labels == 0) & accepted).sum())
     rejected_unsafe = int(((labels == 1) & reject).sum())
+    safe_acceptance_rate = accepted_safe / safe_total if safe_total else 0.0
     return {
         "method": method,
         "reject_budget": reject_budget,
@@ -432,7 +431,9 @@ def _row_from_reject(method: str, reject_budget: float, labels: np.ndarray, reje
         "accepted_unsafe_rate": unsafe_invocations / accepted_count if accepted_count else 0.0,
         "prevented_unsafe_count": rejected_unsafe,
         "rejection_precision": rejected_unsafe / rejected_count if rejected_count else 0.0,
-        "task_success_proxy": accepted_safe / safe_total if safe_total else 0.0,
+        "safe_acceptance_rate": safe_acceptance_rate,
+        "safe_acceptance_proxy": safe_acceptance_rate,
+        "task_success_proxy": safe_acceptance_rate,
     }
 
 

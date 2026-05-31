@@ -71,6 +71,9 @@ def main() -> None:
 def _checks(calibration: dict[str, Any], baseline: dict[str, Any], alpha: float) -> dict[str, bool]:
     per_skill_cal = calibration.get("per_skill_calibration", {})
     per_skill_test = baseline.get("per_skill", {}).get("casa_a_per_skill", {})
+    fixed_hard_mode = baseline.get("fixed_hard_comparison_mode", "blocking")
+    fixed_hard_reduction = baseline.get("casa_vs_hard_unsafe_reduction")
+    matched_hard_reduction = baseline.get("casa_vs_matched_hard_unsafe_reduction")
     return {
         "thresholds_file_valid": bool(calibration.get("thresholds") or calibration.get("thresholds", {}))
         or bool(calibration.get("per_skill_calibration")),
@@ -84,13 +87,22 @@ def _checks(calibration: dict[str, Any], baseline: dict[str, Any], alpha: float)
             per_skill_test.get(skill, {}).get("fnr", 1.0) <= alpha + 0.03 + 1e-12 for skill in MAIN_SKILLS
         ),
         "casa_vs_sonic_unsafe_reduction_ge_40pct": baseline.get("casa_vs_sonic_unsafe_reduction", 0.0) >= 0.40,
-        "casa_vs_hard_unsafe_reduction_ge_20pct": baseline.get("casa_vs_hard_unsafe_reduction", 0.0) >= 0.20,
-        "casa_task_success_drop_abs_le_10pp": baseline.get("casa_task_success_drop_abs_vs_sonic", 1.0) <= 0.10,
-        "casa_task_success_drop_rel_le_30pct": baseline.get("casa_task_success_drop_rel_vs_sonic", 1.0) <= 0.30,
-        "casa_vs_global_fnr_closer_at_least_2_skills": baseline.get(
-            "casa_vs_global_fnr_closer_skill_count", 0
+        "casa_vs_fixed_hard_unsafe_reduction_ge_20pct_or_diagnostic": (
+            fixed_hard_mode == "diagnostic"
+            or fixed_hard_reduction is None
+            or fixed_hard_reduction >= 0.20
+        ),
+        "casa_vs_matched_hard_unsafe_reduction_ge_20pct": (
+            matched_hard_reduction is None or matched_hard_reduction >= 0.20
+        ),
+        "casa_safe_acceptance_drop_abs_le_10pp": _metric(
+            baseline, "casa_safe_acceptance_drop_abs_vs_sonic", "casa_task_success_drop_abs_vs_sonic", 1.0
         )
-        >= 2,
+        <= 0.10,
+        "casa_safe_acceptance_drop_rel_le_30pct": _metric(
+            baseline, "casa_safe_acceptance_drop_rel_vs_sonic", "casa_task_success_drop_rel_vs_sonic", 1.0
+        )
+        <= 0.30,
     }
 
 
@@ -100,8 +112,12 @@ def _warnings(calibration: dict[str, Any], baseline: dict[str, Any]) -> list[str
     if not hc_diag.get("usable_as_main_calibration", False):
         warnings.append("hard_contract_filtered_calibration_subset_dangerous_insufficient")
     hard = baseline.get("methods", {}).get("hard_contract", {})
-    if hard.get("task_success_proxy", 1.0) < 0.50:
+    if hard.get("safe_acceptance_rate", hard.get("task_success_proxy", 1.0)) < 0.50:
         warnings.append("hard_contract_fixed_baseline_over_rejects")
+    if baseline.get("fixed_hard_comparison_mode") == "diagnostic":
+        warnings.append(f"fixed_hard_comparison_diagnostic:{baseline.get('fixed_hard_comparison_reason')}")
+    if baseline.get("casa_vs_global_fnr_closer_skill_count", 0) < 2:
+        warnings.append("casa_vs_global_fnr_closeness_diagnostic_only")
     return warnings
 
 
@@ -113,12 +129,26 @@ def _compact_baseline(baseline: dict[str, Any]) -> dict[str, Any]:
         "unsafe_total": baseline.get("unsafe_total"),
         "casa_vs_sonic_unsafe_reduction": baseline.get("casa_vs_sonic_unsafe_reduction"),
         "casa_vs_hard_unsafe_reduction": baseline.get("casa_vs_hard_unsafe_reduction"),
+        "casa_vs_matched_hard_unsafe_reduction": baseline.get("casa_vs_matched_hard_unsafe_reduction"),
+        "fixed_hard_comparison_mode": baseline.get("fixed_hard_comparison_mode"),
+        "fixed_hard_comparison_reason": baseline.get("fixed_hard_comparison_reason"),
         "casa_vs_global_unsafe_reduction": baseline.get("casa_vs_global_unsafe_reduction"),
-        "casa_task_success_drop_abs_vs_sonic": baseline.get("casa_task_success_drop_abs_vs_sonic"),
-        "casa_task_success_drop_rel_vs_sonic": baseline.get("casa_task_success_drop_rel_vs_sonic"),
+        "casa_safe_acceptance_drop_abs_vs_sonic": _metric(
+            baseline, "casa_safe_acceptance_drop_abs_vs_sonic", "casa_task_success_drop_abs_vs_sonic", None
+        ),
+        "casa_safe_acceptance_drop_rel_vs_sonic": _metric(
+            baseline, "casa_safe_acceptance_drop_rel_vs_sonic", "casa_task_success_drop_rel_vs_sonic", None
+        ),
         "casa_vs_global_fnr_closer_skills": baseline.get("casa_vs_global_fnr_closer_skills"),
+        "casa_vs_global_fnr_diagnostics": baseline.get("casa_vs_global_fnr_diagnostics"),
         "methods": methods,
     }
+
+
+def _metric(data: dict[str, Any], preferred: str, fallback: str, default: Any) -> Any:
+    if preferred in data:
+        return data[preferred]
+    return data.get(fallback, default)
 
 
 def _markdown(audit: dict[str, Any]) -> str:

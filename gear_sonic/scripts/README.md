@@ -43,8 +43,8 @@ CASA scripts use the `casa_*.py` prefix.
 | Script | Purpose |
 |---|---|
 | `casa_make_phase4_collection_plan.py` | Create Phase 4 strict-clean collection recovery commands |
-| `casa_build_phase4_dataset.py` | Build Phase 4 train/calibration/test splits |
-| `casa_train_raw_critic.py` | Train and evaluate the Phase 4 raw critic |
+| `casa_build_phase4_dataset.py` | Build Phase 4 train/critic_val/calibration/test split roles |
+| `casa_train_raw_critic.py` | Train the Phase 4 raw critic using critic_val for model selection |
 | `casa_audit_phase4_acceptance.py` | Audit Phase 4 dataset and critic acceptance |
 | `casa_write_phase4_report.py` | Write the Phase 4 implementation report |
 
@@ -52,7 +52,7 @@ CASA scripts use the `casa_*.py` prefix.
 
 | Script | Purpose |
 |---|---|
-| `casa_calibrate_phase5_conformal.py` | Calibrate global and per-skill conformal thresholds |
+| `casa_calibrate_phase5_conformal.py` | Calibrate global and per-skill conformal thresholds on the untouched calibration split |
 | `casa_eval_phase5_baselines.py` | Evaluate the five baseline gates on the Phase 4 test split |
 | `casa_run_phase5_online_experiment.py` | Run the Phase 5 online five-baseline episode experiment |
 | `casa_run_phase5_online_lane.py` | Launch one online experiment lane |

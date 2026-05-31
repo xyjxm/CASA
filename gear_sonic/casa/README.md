@@ -32,5 +32,6 @@ Command-line entry points live in `gear_sonic/scripts/casa_*.py`.
 2. Skill wrappers publish commands to the SONIC deploy interface.
 3. Loggers write skill, command, and rollout evidence.
 4. The oracle reads sim/deploy logs and writes structured violations.
-5. Dataset builders convert accepted evidence into clean train/calibration/test
-   artifacts.
+5. Dataset builders convert accepted evidence into clean train/critic_val/
+   calibration/test artifacts, keeping raw-critic validation independent from
+   conformal calibration.
