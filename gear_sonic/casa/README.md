@@ -14,6 +14,7 @@ Command-line entry points live in `gear_sonic/scripts/casa_*.py`.
 | `scene/` | MuJoCo prop configuration, placement, and Phase 2 v2 scene generation |
 | `io/` | Episode log readers and ZMQ publish helpers |
 | `phase5.py` | Shared constants and helpers for conformal/baseline evaluation |
+| `phase5_online.py` | Shared validation, audit, and report helpers for Phase 5 online artifacts |
 | `runner_utils.py` | Utility functions shared by CASA runner scripts |
 
 ## Design Rules

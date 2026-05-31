@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import argparse
 import csv
+from datetime import datetime
 import os
+from pathlib import Path
 import signal
 import subprocess
 import time
-from datetime import datetime
-from pathlib import Path
 from typing import Any
-
 
 METHODS = ["sonic_only", "hard_contract", "raw_critic_0p5", "global_conformal", "casa_a_per_skill"]
 SEEDS = [1234, 1235, 1236, 1237, 1238]
@@ -94,6 +93,14 @@ def main() -> None:
         str(args.online_root / "merged"),
         "--expected-episodes",
         str(expected_total),
+        "--expected-methods",
+        args.methods,
+        "--expected-seeds",
+        args.seeds,
+        "--episodes-per-seed",
+        str(args.episodes_per_seed),
+        "--skills-per-episode",
+        "8",
     ]
     print("[lowmem] merging:", " ".join(merge_cmd), flush=True)
     raise SystemExit(subprocess.call(merge_cmd, cwd="."))
@@ -134,7 +141,12 @@ def build_jobs(args: argparse.Namespace, done: dict[tuple[str, int], set[int]]) 
     return jobs
 
 
-def run_jobs(args: argparse.Namespace, jobs: list[dict[str, Any]], devices: list[str], expected_total: int) -> None:
+def run_jobs(
+    args: argparse.Namespace,
+    jobs: list[dict[str, Any]],
+    devices: list[str],
+    expected_total: int,
+) -> None:
     running: list[dict[str, Any]] = []
     next_index = 0
     last_report = 0.0
@@ -152,7 +164,11 @@ def run_jobs(args: argparse.Namespace, jobs: list[dict[str, Any]], devices: list
             elapsed = time.time() - job["started_at"]
             if returncode:
                 failed.append((job, int(returncode)))
-                print(f"[lowmem] FAILED {job['name']} rc={returncode} elapsed={elapsed:.1f}s log={job['stdout']}", flush=True)
+                print(
+                    f"[lowmem] FAILED {job['name']} rc={returncode} "
+                    f"elapsed={elapsed:.1f}s log={job['stdout']}",
+                    flush=True,
+                )
             else:
                 print(f"[lowmem] finished {job['name']} elapsed={elapsed:.1f}s", flush=True)
         running = still_running
@@ -307,7 +323,11 @@ def terminate_job(job: dict[str, Any]) -> None:
 def print_progress(root: Path, expected_total: int) -> None:
     done = completed_map(root)
     total = sum(len(values) for values in done.values())
-    print(f"\n[lowmem-progress] {datetime.now().isoformat(timespec='seconds')} {total}/{expected_total} completed", flush=True)
+    print(
+        f"\n[lowmem-progress] {datetime.now().isoformat(timespec='seconds')} "
+        f"{total}/{expected_total} completed",
+        flush=True,
+    )
     for method in METHODS:
         counts = {seed: len(done[(method, seed)]) for seed in SEEDS}
         print(f"[lowmem-progress] {method} {sum(counts.values())} {counts}", flush=True)
