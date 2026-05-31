@@ -31,6 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-seeds", default="")
     parser.add_argument("--episodes-per-seed", type=int)
     parser.add_argument("--skills-per-episode", type=int, default=8)
+    parser.add_argument("--casa-method", default="casa_a_per_skill")
     parser.add_argument("--strict", action="store_true")
     return parser.parse_args()
 
@@ -51,6 +52,7 @@ def main() -> None:
         expected_seeds=expected_seeds,
         episodes_per_seed=args.episodes_per_seed,
         skills_per_episode=args.skills_per_episode,
+        casa_method=args.casa_method,
     )
     method_summary = method_summary_rows(episode_rows)
     write_csv_rows(output_dir / "method_summary.csv", method_summary)

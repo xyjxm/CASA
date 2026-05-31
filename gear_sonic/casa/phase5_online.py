@@ -9,7 +9,8 @@ import math
 from pathlib import Path
 from typing import Any
 
-from gear_sonic.casa.phase5 import MAIN_SKILLS, METHOD_DISPLAY, METHOD_ORDER, relative_reduction
+from gear_sonic.casa.phase5 import MAIN_SKILLS, METHOD_ORDER, relative_reduction
+from gear_sonic.casa.phase5_policy import ONLINE_METHOD_ORDER, method_display
 
 REQUIRED_EPISODE_FIELDS = (
     "method",
@@ -87,7 +88,7 @@ def method_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         output.append(
             {
                 "method": method,
-                "method_display": method_rows[0].get("method_display", METHOD_DISPLAY.get(method, method)),
+                "method_display": method_rows[0].get("method_display", method_display(method)),
                 "episode_count": count,
                 "completed_count": completed,
                 "failed_or_unverified": count - completed,
@@ -566,7 +567,7 @@ def online_report_markdown(audit: dict[str, Any]) -> str:
             "|---|---:|---:|---:|---:|---:|---:|",
         ]
     )
-    for method in METHOD_ORDER:
+    for method in ONLINE_METHOD_ORDER:
         row = method_summary.get(method)
         if not row:
             continue

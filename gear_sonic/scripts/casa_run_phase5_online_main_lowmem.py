@@ -7,6 +7,7 @@ import csv
 from datetime import datetime
 import os
 from pathlib import Path
+import random
 import signal
 import subprocess
 import time
@@ -29,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-size", type=int, default=25)
     parser.add_argument("--episodes-per-seed", type=int, default=100)
     parser.add_argument("--methods", default=",".join(METHODS))
+    parser.add_argument("--casa-method", default="casa_a_per_skill")
     parser.add_argument("--seeds", default=",".join(str(seed) for seed in SEEDS))
     parser.add_argument("--base-domain-id", type=int, default=180)
     parser.add_argument("--domain-pool-size", type=int, default=40)
@@ -46,6 +48,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--initial-warmup-idle-seconds", type=float, default=4.0)
     parser.add_argument("--episode-start-command-seconds", type=float, default=0.75)
     parser.add_argument("--max-sweeps", type=int, default=6)
+    parser.add_argument(
+        "--fallback-policy",
+        choices=["auto", "stop", "adaptive", "adaptive_retry"],
+        default="auto",
+    )
+    parser.add_argument("--adaptive-retry-count", type=int, default=1)
+    parser.add_argument("--segment-long-skills", action="store_true")
+    parser.add_argument("--max-segment-duration", type=float, default=0.5)
+    parser.add_argument("--recheck-before-segment", action="store_true")
+    parser.add_argument("--threshold-scale-global", type=float, default=1.0)
+    parser.add_argument("--threshold-scale-by-skill", default="")
+    parser.add_argument("--randomize-method-order", action="store_true")
+    parser.add_argument("--method-order-seed", type=int, default=0)
     return parser.parse_args()
 
 
@@ -101,6 +116,8 @@ def main() -> None:
         str(args.episodes_per_seed),
         "--skills-per-episode",
         "8",
+        "--casa-method",
+        args.casa_method,
     ]
     print("[lowmem] merging:", " ".join(merge_cmd), flush=True)
     raise SystemExit(subprocess.call(merge_cmd, cwd="."))
@@ -129,7 +146,11 @@ def build_jobs(args: argparse.Namespace, done: dict[tuple[str, int], set[int]]) 
                         }
                     )
                     chunk_start = chunk_end
-    job_specs.sort(key=lambda job: (job["start"], job["seed"], job["_method_rank"]))
+    if args.randomize_method_order:
+        rng = random.Random(int(args.method_order_seed))
+        rng.shuffle(job_specs)
+    else:
+        job_specs.sort(key=lambda job: (job["start"], job["seed"], job["_method_rank"]))
     jobs: list[dict[str, Any]] = []
     for job_index, spec in enumerate(job_specs):
         port = args.base_zmq_port + job_index * 2
@@ -207,7 +228,7 @@ def run_jobs(
 
 
 def lane_cmd(args: argparse.Namespace, job: dict[str, Any], device: str) -> list[str]:
-    return [
+    cmd = [
         ".venv_sim/bin/python",
         "-u",
         "gear_sonic/scripts/casa_run_phase5_online_lane.py",
@@ -255,9 +276,28 @@ def lane_cmd(args: argparse.Namespace, job: dict[str, Any], device: str) -> list
         str(args.initial_warmup_idle_seconds),
         "--episode-start-command-seconds",
         str(args.episode_start_command_seconds),
+        "--fallback-policy",
+        args.fallback_policy,
+        "--adaptive-retry-count",
+        str(args.adaptive_retry_count),
+        "--max-segment-duration",
+        str(args.max_segment_duration),
+        "--threshold-scale-global",
+        str(args.threshold_scale_global),
+        "--threshold-scale-by-skill",
+        args.threshold_scale_by_skill,
+        "--method-order-seed",
+        str(args.method_order_seed),
         "--cuda-visible-devices",
         device,
     ]
+    if args.segment_long_skills:
+        cmd.append("--segment-long-skills")
+    if args.recheck_before_segment:
+        cmd.append("--recheck-before-segment")
+    if args.randomize_method_order:
+        cmd.append("--randomize-method-order")
+    return cmd
 
 
 def completed_map(root: Path) -> dict[tuple[str, int], set[int]]:

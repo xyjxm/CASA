@@ -15,6 +15,10 @@ Command-line entry points live in `gear_sonic/scripts/casa_*.py`.
 | `io/` | Episode log readers and ZMQ publish helpers |
 | `phase5.py` | Shared constants and helpers for conformal/baseline evaluation |
 | `phase5_online.py` | Shared validation, audit, and report helpers for Phase 5 online artifacts |
+| `phase5_online_diagnostics.py` | Failure decomposition helpers for Phase 5 online no-go artifacts |
+| `phase5_online_sweep.py` | Pilot sweep planning and Pareto-report helpers for online policy candidates |
+| `phase5_policy.py` | Online candidate method definitions, threshold scaling, and reject rules |
+| `phase5_recovery.py` | Adaptive recovery and skill segmentation helpers for online execution |
 | `runner_utils.py` | Utility functions shared by CASA runner scripts |
 
 ## Design Rules
