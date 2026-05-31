@@ -123,6 +123,8 @@ Representative scripts:
 - `gear_sonic/scripts/casa_run_phase5_online_experiment.py`
 - `gear_sonic/scripts/casa_merge_phase5_online_results.py`
 - `gear_sonic/scripts/casa_audit_phase5_online.py`
+- `gear_sonic/scripts/casa_diagnose_phase5_online_failures.py`
+- `gear_sonic/scripts/casa_sweep_phase5_online_policy.py`
 - `gear_sonic/scripts/casa_audit_phase5_acceptance.py`
 - `gear_sonic/scripts/casa_write_phase5_report.py`
 
@@ -165,7 +167,7 @@ episode, and skill-count constraints. A representative 2500-episode main run is:
 ```bash
 python gear_sonic/scripts/casa_run_phase5_online_main_lowmem.py \
   --phase5-root outputs/casa/phase5_conformal_baselines_YYYYMMDD \
-  --output-dir outputs/casa/phase5_conformal_baselines_YYYYMMDD/online_real_main_2500 \
+  --online-root outputs/casa/phase5_conformal_baselines_YYYYMMDD/online_real_main_2500 \
   --seeds 1234,1235,1236,1237,1238 \
   --episodes-per-seed 100 \
   --methods sonic_only,hard_contract,raw_critic_0p5,global_conformal,casa_a_per_skill
@@ -210,6 +212,77 @@ The audit must not force a `PASS_STRICT_ONLINE` result. If the real data still
 fails safety or task-success criteria, status remains `ONLINE_NO_GO` and the
 report lists actionable blockers such as insufficient CASA-vs-SONIC unsafe
 reduction or excessive task-success drop.
+
+### Phase 5 Online Performance Iteration
+
+Issue #5 made the online audit reproducible and explainable. Issue #7 targets
+the actual online performance gap: reaching strict online `GO` on fresh held-out
+2500-episode data without weakening the audit.
+
+First decompose the current no-go artifact as dev/tuning evidence:
+
+```bash
+python gear_sonic/scripts/casa_diagnose_phase5_online_failures.py \
+  --online-dir outputs/casa/phase5_conformal_baselines_YYYYMMDD/online_real_main_2500/merged \
+  --output-dir outputs/casa/phase5_conformal_baselines_YYYYMMDD/online_real_main_2500/diagnostics
+```
+
+The diagnostic report writes `phase5_online_failure_breakdown.json` and
+`phase5_online_failure_breakdown.md`. It separates gate recall
+(`allow_then_unsafe`), failed recovery (`reject_but_still_unsafe`),
+task-success over-rejection, low-risk unsafe events that suggest online
+distribution shift, reset/upright hygiene, per-skill risk/threshold margins,
+target buckets, scene complexity, top failure clusters, and recommended next
+interventions.
+
+Candidate online methods are available in addition to the original five
+baselines:
+
+- `casa_a_hard_or_per_skill`: reject when hard contract fires OR per-skill CASA
+  threshold rejects.
+- `casa_a_recovery_per_skill`: per-skill CASA rejection with adaptive recovery.
+- `casa_a_hard_or_recovery`: hard-OR-CASA rejection with adaptive recovery.
+- `casa_a_receding_recovery`: segmented long skills with per-segment rechecks
+  and adaptive retry recovery.
+
+Online policy flags include:
+
+- `--fallback-policy stop|adaptive|adaptive_retry|auto`
+- `--segment-long-skills`
+- `--max-segment-duration 0.5`
+- `--recheck-before-segment`
+- `--threshold-scale-global 0.8`
+- `--threshold-scale-by-skill walk=0.8,turn=0.9,gesture=0.7,passive=1.0`
+- `--randomize-method-order`
+- `--method-order-seed 20260531`
+
+Plan pilot sweeps before full runs:
+
+```bash
+python gear_sonic/scripts/casa_sweep_phase5_online_policy.py \
+  --output-dir outputs/casa/phase5_online_policy_sweep_YYYYMMDD \
+  --fallback-policies adaptive,adaptive_retry \
+  --hard-or-casa true \
+  --segment-long-skills true \
+  --max-segment-durations 0.5,0.75 \
+  --threshold-scale-global 0.7,0.8,0.9 \
+  --recovery-retry-counts 1,2
+```
+
+After pilot runs finish, summarize completed candidate directories:
+
+```bash
+python gear_sonic/scripts/casa_sweep_phase5_online_policy.py \
+  --output-dir outputs/casa/phase5_online_policy_sweep_YYYYMMDD/summary \
+  --candidate hard_or_recovery:outputs/casa/pilots/hard_or_recovery/merged \
+  --candidate receding_recovery:outputs/casa/pilots/receding_recovery/merged
+```
+
+Only pilot candidates with unsafe reduction versus SONIC of at least `0.45`,
+relative task-success drop no more than `0.20`, no catastrophic per-skill
+failure, and clean reset/rollout hygiene should be promoted to a fresh held-out
+2500-episode strict run. The current no-go 2500 artifact is dev/tuning evidence
+only and must not be reused as final success evidence after policy tuning.
 
 ## Outputs And Reproducibility
 

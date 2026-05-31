@@ -31,6 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-seeds", default="")
     parser.add_argument("--episodes-per-seed", type=int)
     parser.add_argument("--skills-per-episode", type=int, default=8)
+    parser.add_argument("--casa-method", default="casa_a_per_skill")
     return parser.parse_args()
 
 
@@ -64,6 +65,7 @@ def main() -> None:
         lane_summaries=lane_summaries,
         raw_episode_row_count=raw_episode_row_count,
         raw_decision_row_count=raw_decision_row_count,
+        casa_method=args.casa_method,
     )
     audit["raw_episode_row_count"] = raw_episode_row_count
     audit["raw_decision_row_count"] = raw_decision_row_count

@@ -5,10 +5,10 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+from pathlib import Path
 import random
 import sys
 import time
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -19,18 +19,26 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from gear_sonic.casa.dataset.invocation_dataset import _extract_features  # noqa: E402
+from gear_sonic.casa.io.zmq_publisher import LOCOMOTION_IDLE  # noqa: E402
 from gear_sonic.casa.loggers.rollout_logger import RolloutLogger  # noqa: E402
 from gear_sonic.casa.oracle import SafetyOracle  # noqa: E402
 from gear_sonic.casa.oracle.rollout_summary import build_rollout_summary  # noqa: E402
-from gear_sonic.casa.io.zmq_publisher import LOCOMOTION_IDLE  # noqa: E402
 from gear_sonic.casa.phase5 import (  # noqa: E402
-    METHOD_DISPLAY,
     METHOD_ORDER,
     hard_contract_scores,
     read_json,
     write_csv,
     write_json,
 )
+from gear_sonic.casa.phase5_policy import (  # noqa: E402
+    ONLINE_METHOD_ORDER,
+    evaluate_online_method,
+    method_behavior,
+    method_display,
+    parse_threshold_scale_by_skill,
+    scale_thresholds,
+)
+from gear_sonic.casa.phase5_recovery import choose_fallback_policy, plan_recovery, split_skill  # noqa: E402
 from gear_sonic.casa.runner_utils import create_executor  # noqa: E402
 from gear_sonic.casa.scene.phase2_v2 import make_phase2_v2_scene_command  # noqa: E402
 from gear_sonic.casa.skills import GestureSkill, PassiveSkill, TurnSkill, WalkSkill  # noqa: E402
@@ -81,6 +89,19 @@ def parse_args() -> argparse.Namespace:
         default="clean_safe,visual_collision_or_close,visual_near_boundary,visual_fall",
     )
     parser.add_argument("--scene-complexity-cycle", default="medium,hard,medium,simple")
+    parser.add_argument(
+        "--fallback-policy",
+        choices=["auto", "stop", "adaptive", "adaptive_retry"],
+        default="auto",
+    )
+    parser.add_argument("--adaptive-retry-count", type=int, default=1)
+    parser.add_argument("--segment-long-skills", action="store_true")
+    parser.add_argument("--max-segment-duration", type=float, default=0.5)
+    parser.add_argument("--recheck-before-segment", action="store_true")
+    parser.add_argument("--threshold-scale-global", type=float, default=1.0)
+    parser.add_argument("--threshold-scale-by-skill", default="")
+    parser.add_argument("--randomize-method-order", action="store_true")
+    parser.add_argument("--method-order-seed", type=int, default=0)
     return parser.parse_args()
 
 
@@ -98,7 +119,11 @@ def main() -> None:
     if not args.dry_run and args.sim_log_dir is None:
         raise SystemExit("--sim-log-dir is required unless --dry-run is set")
 
-    thresholds = read_json(args.phase5_root / "conformal_thresholds.json")["thresholds"]
+    thresholds = scale_thresholds(
+        read_json(args.phase5_root / "conformal_thresholds.json")["thresholds"],
+        global_scale=args.threshold_scale_global,
+        by_skill=parse_threshold_scale_by_skill(args.threshold_scale_by_skill),
+    )
     gate = Phase5Gate(
         args.phase4_root,
         thresholds,
@@ -114,7 +139,7 @@ def main() -> None:
         for episode_index in range(args.episode_start, args.episode_start + episodes_per_seed):
             scene_command = _scene_command(args, seed, episode_index)
             skill_sequence = _episode_skills(seed, episode_index)
-            for method in methods:
+            for method in _methods_for_episode(methods, args, seed, episode_index):
                 row, decisions = _run_one_episode(
                     args=args,
                     output_dir=output_dir,
@@ -131,7 +156,11 @@ def main() -> None:
                 write_csv(output_dir / "online_episode_results.csv", episode_rows)
                 write_csv(output_dir / "gate_decisions.csv", decision_rows)
                 write_json(output_dir / "method_summary.json", _method_summary(episode_rows))
-                if row.get("status") == "initial_upright_failed" and not args.continue_after_initial_upright_failure:
+                abort_after_upright_failure = (
+                    row.get("status") == "initial_upright_failed"
+                    and not args.continue_after_initial_upright_failure
+                )
+                if abort_after_upright_failure:
                     write_csv(output_dir / "method_summary.csv", _method_summary_rows(episode_rows))
                     write_json(
                         output_dir / "online_experiment_manifest.json",
@@ -180,6 +209,17 @@ def _manifest(
             "publish_fps": args.publish_fps,
             "pre_window_seconds": args.pre_window_seconds,
             "post_horizon": args.post_horizon,
+            "fallback_policy": args.fallback_policy,
+            "adaptive_retry_count": args.adaptive_retry_count,
+            "segment_long_skills": bool(args.segment_long_skills),
+            "max_segment_duration": args.max_segment_duration,
+            "recheck_before_segment": bool(args.recheck_before_segment),
+            "randomize_method_order": bool(args.randomize_method_order),
+            "method_order_seed": args.method_order_seed,
+        },
+        "threshold_scaling": {
+            "global": args.threshold_scale_global,
+            "by_skill": parse_threshold_scale_by_skill(args.threshold_scale_by_skill),
         },
         "expected_artifacts": [
             "online_episode_results.csv",
@@ -190,7 +230,11 @@ def _manifest(
         ],
         "notes": [
             "All methods receive the same scene command and deterministic skill sequence for each seed/episode.",
-            "Rejected candidate skills execute PassiveSkill(mode='stop') as fallback.",
+            (
+                "Rejected candidate skills execute stop/adaptive/adaptive_retry fallback "
+                "according to method and flags."
+            ),
+            "Segmented methods log one gate decision per executed segment.",
         ],
     }
 
@@ -261,23 +305,13 @@ class Phase5Gate:
     ) -> dict[str, Any]:
         feature_vector, hard_score, hard_fixed = self._features(skill, sim_log_dir, scene_props)
         raw_risk = self._risk(feature_vector)
-        if method == "sonic_only":
-            reject = False
-            threshold = None
-        elif method == "hard_contract":
-            reject = bool(hard_fixed)
-            threshold = None
-        elif method == "raw_critic_0p5":
-            threshold = 0.5
-            reject = raw_risk >= threshold
-        elif method == "global_conformal":
-            threshold = float(self.thresholds["global"])
-            reject = raw_risk >= threshold
-        elif method == "casa_a_per_skill":
-            threshold = float(self.thresholds["per_skill"][skill.name])
-            reject = raw_risk >= threshold
-        else:
-            raise ValueError(f"Unknown method: {method}")
+        policy_decision = evaluate_online_method(
+            method=method,
+            skill_name=skill.name,
+            raw_risk=raw_risk,
+            hard_contract_fixed_reject=bool(hard_fixed),
+            thresholds=self.thresholds,
+        )
         return {
             "method": method,
             "candidate_skill": skill.name,
@@ -285,8 +319,10 @@ class Phase5Gate:
             "raw_critic_risk": raw_risk,
             "hard_contract_score": hard_score,
             "hard_contract_fixed_reject": int(bool(hard_fixed)),
-            "threshold": "" if threshold is None else threshold,
-            "decision": "reject" if reject else "allow",
+            "threshold": "" if policy_decision.threshold is None else policy_decision.threshold,
+            "risk_margin": "" if policy_decision.risk_margin is None else policy_decision.risk_margin,
+            "decision": "reject" if policy_decision.reject else "allow",
+            "reject_reason": policy_decision.reject_reason,
         }
 
     def remember_result(self, result: Any) -> None:
@@ -360,7 +396,11 @@ def _run_one_episode(
     gate.previous_skill_event = None
     (episode_dir / "scene_command.json").write_text(json.dumps(scene_command, indent=2, sort_keys=True) + "\n")
     (episode_dir / "skill_sequence.json").write_text(
-        json.dumps([{"name": skill.name, "params": skill.params()} for skill in skill_sequence], indent=2, sort_keys=True)
+        json.dumps(
+            [{"name": skill.name, "params": skill.params()} for skill in skill_sequence],
+            indent=2,
+            sort_keys=True,
+        )
         + "\n"
     )
     executor_args = SimpleNamespace(
@@ -394,7 +434,7 @@ def _run_one_episode(
             executor.close()
         row = {
             "method": method,
-            "method_display": METHOD_DISPLAY.get(method, method),
+            "method_display": method_display(method),
             "seed": seed,
             "episode_index": episode_index,
             "episode_id": episode_id,
@@ -454,28 +494,80 @@ def _run_one_episode(
             error = "initial_upright_failed_after_policy_start"
         else:
             start_wall = time.time()
-            for skill_idx, skill in enumerate(skill_sequence, start=1):
-                decision = gate.decide(method=method, skill=skill, sim_log_dir=sim_log_dir, scene_props=scene_props)
-                executed_skill = skill
-                if decision["decision"] == "reject":
-                    fallback_count += 1
-                    executed_skill = PassiveSkill(duration=args.fallback_duration, mode="stop")
-                result = executor.execute_one(executed_skill, episode_id=episode_id, skill_idx=skill_idx)
-                gate.remember_result(result)
-                decision.update(
-                    {
-                        "episode_id": episode_id,
-                        "episode_index": episode_index,
-                        "seed": seed,
-                        "skill_idx": skill_idx,
-                        "executed_skill": executed_skill.name,
-                        "executed_params_json": json.dumps(executed_skill.params(), sort_keys=True),
-                        "fallback_executed": int(executed_skill.name != skill.name or decision["decision"] == "reject"),
-                        "result_status": result.status,
-                        "result_termination_reason": result.termination_reason,
-                    }
-                )
-                decisions.append(decision)
+            execution_skill_idx = 0
+            behavior = method_behavior(method)
+            fallback_policy = choose_fallback_policy(behavior.fallback_policy, args.fallback_policy)
+            use_segmentation = bool(args.segment_long_skills or behavior.segment_long_skills)
+            recheck_segments = bool(args.recheck_before_segment or behavior.segment_long_skills)
+            for original_skill_idx, skill in enumerate(skill_sequence, start=1):
+                if use_segmentation:
+                    segments = split_skill(skill, max_segment_duration=args.max_segment_duration)
+                else:
+                    segments = [skill]
+                shared_decision: dict[str, Any] | None = None
+                for segment_idx, segment in enumerate(segments, start=1):
+                    execution_skill_idx += 1
+                    if shared_decision is None or recheck_segments:
+                        decision = gate.decide(
+                            method=method,
+                            skill=segment,
+                            sim_log_dir=sim_log_dir,
+                            scene_props=scene_props,
+                        )
+                        if not recheck_segments:
+                            shared_decision = dict(decision)
+                    else:
+                        decision = dict(shared_decision)
+                        decision["candidate_skill"] = segment.name
+                        decision["candidate_params_json"] = json.dumps(segment.params(), sort_keys=True)
+                    executed_skill = segment
+                    recovery_action = ""
+                    recovery_reason = ""
+                    recovery_retry_count = 0
+                    if decision["decision"] == "reject":
+                        fallback_count += 1
+                        recovery = plan_recovery(
+                            segment,
+                            fallback_policy=fallback_policy,
+                            fallback_duration=args.fallback_duration,
+                            max_retry_count=args.adaptive_retry_count,
+                            reject_reason=str(decision.get("reject_reason", "")),
+                            raw_risk=_float(decision.get("raw_critic_risk")),
+                            hard_contract_fixed_reject=bool(int(decision.get("hard_contract_fixed_reject", 0))),
+                        )
+                        executed_skill = recovery.skill
+                        recovery_action = recovery.action
+                        recovery_reason = recovery.reason
+                        recovery_retry_count = recovery.retry_count
+                    result = executor.execute_one(
+                        executed_skill,
+                        episode_id=episode_id,
+                        skill_idx=execution_skill_idx,
+                    )
+                    gate.remember_result(result)
+                    decision.update(
+                        {
+                            "episode_id": episode_id,
+                            "episode_index": episode_index,
+                            "seed": seed,
+                            "skill_idx": execution_skill_idx,
+                            "original_skill_idx": original_skill_idx,
+                            "segment_idx": segment_idx,
+                            "segment_count": len(segments),
+                            "executed_skill": executed_skill.name,
+                            "executed_params_json": json.dumps(executed_skill.params(), sort_keys=True),
+                            "fallback_policy": fallback_policy,
+                            "fallback_executed": int(
+                                executed_skill.name != segment.name or decision["decision"] == "reject"
+                            ),
+                            "recovery_action": recovery_action,
+                            "recovery_reason": recovery_reason,
+                            "recovery_retry_count": recovery_retry_count,
+                            "result_status": result.status,
+                            "result_termination_reason": result.termination_reason,
+                        }
+                    )
+                    decisions.append(decision)
     except Exception as exc:  # noqa: BLE001 - keep the experiment moving and logged.
         status = "failed"
         error = repr(exc)
@@ -494,7 +586,7 @@ def _run_one_episode(
             "run_id": f"phase5_{method}_{seed}",
             "rollout_id": episode_id,
             "method": method,
-            "method_display": METHOD_DISPLAY.get(method, method),
+            "method_display": method_display(method),
             "seed": seed,
             "episode_index": episode_index,
             "status": status,
@@ -524,7 +616,11 @@ def _run_one_episode(
         }
         RolloutLogger(episode_dir).write([], summary)
         task_success = status == "completed" and fallback_count == 0
-    elif args.sim_log_dir is not None and (args.sim_log_dir / "sim_state.csv").exists() and skill_events_csv.exists():
+    elif (
+        args.sim_log_dir is not None
+        and (args.sim_log_dir / "sim_state.csv").exists()
+        and skill_events_csv.exists()
+    ):
         time.sleep(max(0.0, args.post_horizon + 0.25))
         sliced = _slice_sim_log(
             args.sim_log_dir / "sim_state.csv",
@@ -533,7 +629,12 @@ def _run_one_episode(
             end_wall + args.post_horizon + 0.25,
         )
         violations = oracle.detect(sliced, skill_events_csv)
-        skill_labels = oracle.label_skill_calls(violations, sliced, skill_events_csv, post_horizon=args.post_horizon)
+        skill_labels = oracle.label_skill_calls(
+            violations,
+            sliced,
+            skill_events_csv,
+            post_horizon=args.post_horizon,
+        )
         unsafe_invocation_count = sum(1 for label in skill_labels if label.get("safe_label") == "unsafe")
         violation_count = len(violations)
         violation_types = sorted({violation.violation_type.value for violation in violations})
@@ -549,7 +650,7 @@ def _run_one_episode(
             scene_props=scene_props,
             extra={
                 "method": method,
-                "method_display": METHOD_DISPLAY.get(method, method),
+                "method_display": method_display(method),
                 "seed": seed,
                 "episode_index": episode_index,
                 "fallback_count": fallback_count,
@@ -567,7 +668,7 @@ def _run_one_episode(
 
     row = {
         "method": method,
-        "method_display": METHOD_DISPLAY.get(method, method),
+        "method_display": method_display(method),
         "seed": seed,
         "episode_index": episode_index,
         "episode_id": episode_id,
@@ -849,7 +950,7 @@ def _method_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _method_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     output = []
-    for method in _parse_methods(",".join(METHOD_ORDER)):
+    for method in _parse_methods(",".join(ONLINE_METHOD_ORDER)):
         method_rows = [row for row in rows if row.get("method") == method]
         if not method_rows:
             continue
@@ -857,12 +958,14 @@ def _method_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         output.append(
             {
                 "method": method,
-                "method_display": METHOD_DISPLAY.get(method, method),
+                "method_display": method_display(method),
                 "episode_count": count,
                 "task_success_rate": sum(int(row.get("task_success", 0)) for row in method_rows) / count,
                 "unsafe_invocation_count": sum(int(row.get("unsafe_invocation_count", 0)) for row in method_rows),
                 "fallback_count": sum(int(row.get("fallback_count", 0)) for row in method_rows),
-                "mean_completion_time_s": sum(float(row.get("completion_time_s", 0.0)) for row in method_rows) / count,
+                "mean_completion_time_s": (
+                    sum(float(row.get("completion_time_s", 0.0)) for row in method_rows) / count
+                ),
                 "failed_or_unverified": sum(
                     1 for row in method_rows if row.get("status") not in {"completed"}
                 ),
@@ -873,10 +976,24 @@ def _method_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _parse_methods(raw: str) -> list[str]:
     values = [item.strip() for item in raw.split(",") if item.strip()]
-    unknown = [value for value in values if value not in METHOD_ORDER]
+    unknown = [value for value in values if value not in ONLINE_METHOD_ORDER]
     if unknown:
-        raise SystemExit(f"Unknown methods: {unknown}; valid methods are {METHOD_ORDER}")
+        raise SystemExit(f"Unknown methods: {unknown}; valid methods are {ONLINE_METHOD_ORDER}")
     return values
+
+
+def _methods_for_episode(
+    methods: list[str],
+    args: argparse.Namespace,
+    seed: int,
+    episode_index: int,
+) -> list[str]:
+    ordered = list(methods)
+    if not args.randomize_method_order:
+        return ordered
+    rng = random.Random(int(args.method_order_seed) + seed * 1000003 + episode_index)
+    rng.shuffle(ordered)
+    return ordered
 
 
 def _parse_seeds(raw: str) -> list[int]:
