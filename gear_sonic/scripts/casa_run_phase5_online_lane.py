@@ -142,6 +142,8 @@ def main() -> None:
 
     summary = {
         "run_id": args.run_id,
+        "phase4_root": str(args.phase4_root),
+        "phase5_root": str(args.phase5_root),
         "output_dir": str(output_dir),
         "online_dir": str(output_dir / "online"),
         "methods": [item.strip() for item in args.methods.split(",") if item.strip()],
@@ -152,6 +154,14 @@ def main() -> None:
         "domain_id": args.domain_id,
         "zmq_port": args.zmq_port,
         "zmq_out_port": args.zmq_out_port,
+        "policy_checkpoint_dir": str(DEPLOY_ROOT / "policy/release"),
+        "sim_scene": "gear_sonic/data/robot_model/model_data/g1/scene_casa_v1.xml",
+        "expected_artifacts": [
+            "online/online_episode_results.csv",
+            "online/gate_decisions.csv",
+            "online/method_summary.json",
+            "lane_summary.json",
+        ],
     }
     (output_dir / "lane_summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
     print(json.dumps(summary, indent=2, sort_keys=True))

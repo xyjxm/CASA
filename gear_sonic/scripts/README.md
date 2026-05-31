@@ -57,7 +57,8 @@ CASA scripts use the `casa_*.py` prefix.
 | `casa_run_phase5_online_experiment.py` | Run the Phase 5 online five-baseline episode experiment |
 | `casa_run_phase5_online_lane.py` | Launch one online experiment lane |
 | `casa_run_phase5_online_main_lowmem.py` | Run/resume the low-concurrency online main experiment |
-| `casa_merge_phase5_online_results.py` | Merge Phase 5 online lane outputs |
+| `casa_merge_phase5_online_results.py` | Merge Phase 5 online lane outputs and write online GO/NO-GO audit artifacts |
+| `casa_audit_phase5_online.py` | Audit an existing merged Phase 5 online directory without rerunning episodes |
 | `casa_audit_phase5_acceptance.py` | Audit Phase 5 acceptance criteria |
 | `casa_write_phase5_report.py` | Write the Phase 5 conformal baseline report |
 

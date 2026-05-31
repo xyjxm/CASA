@@ -122,6 +122,7 @@ Representative scripts:
 - `gear_sonic/scripts/casa_run_phase5_online_lane.py`
 - `gear_sonic/scripts/casa_run_phase5_online_experiment.py`
 - `gear_sonic/scripts/casa_merge_phase5_online_results.py`
+- `gear_sonic/scripts/casa_audit_phase5_online.py`
 - `gear_sonic/scripts/casa_audit_phase5_acceptance.py`
 - `gear_sonic/scripts/casa_write_phase5_report.py`
 
@@ -153,6 +154,62 @@ hard contract over-rejects safe samples, the fixed comparison is diagnostic and
 the matched safe-rejection-budget hard comparison is used for the fair blocking
 check. CASA-vs-global FNR closeness is diagnostic; the hard safety requirement
 is one-sided per-skill FNR control.
+
+### Phase 5 Online Audit
+
+The online experiment evaluates the same five methods with real episode
+execution. `casa_run_phase5_online_main_lowmem.py` launches/resumes lane jobs,
+then calls `casa_merge_phase5_online_results.py` with the expected method, seed,
+episode, and skill-count constraints. A representative 2500-episode main run is:
+
+```bash
+python gear_sonic/scripts/casa_run_phase5_online_main_lowmem.py \
+  --phase5-root outputs/casa/phase5_conformal_baselines_YYYYMMDD \
+  --output-dir outputs/casa/phase5_conformal_baselines_YYYYMMDD/online_real_main_2500 \
+  --seeds 1234,1235,1236,1237,1238 \
+  --episodes-per-seed 100 \
+  --methods sonic_only,hard_contract,raw_critic_0p5,global_conformal,casa_a_per_skill
+```
+
+For an already merged online directory, rerun only the audit:
+
+```bash
+python gear_sonic/scripts/casa_audit_phase5_online.py \
+  --online-dir outputs/casa/phase5_conformal_baselines_YYYYMMDD/online_real_main_2500/merged \
+  --expected-episodes 2500 \
+  --expected-methods sonic_only,hard_contract,raw_critic_0p5,global_conformal,casa_a_per_skill \
+  --expected-seeds 1234,1235,1236,1237,1238 \
+  --episodes-per-seed 100
+```
+
+Use `--strict` in CI or release checks when a non-GO audit should return a
+non-zero exit code. Without `--strict`, the script still writes the full audit
+artifacts so a failed online run remains inspectable.
+
+The online audit writes:
+
+- `online_episode_results.csv`: one row per method/seed/episode.
+- `gate_decisions.csv`: one row per gate decision inside completed episodes.
+- `method_summary.csv` and `method_summary.json`: per-method task success,
+  fallback, violation, and unsafe-invocation totals/rates.
+- `online_acceptance_audit.json`: full schema validation, checks, warnings,
+  confidence intervals, baseline comparisons, and per-skill diagnostics.
+- `online_go_no_go.json`: compact status, blocking reasons, warnings, and
+  actionable next steps.
+- `online_report.md`: human-readable online report.
+
+Online acceptance is intentionally stricter than report generation. Missing
+fields, invalid numeric values, duplicate method/seed/episode rows, incomplete
+expected grids, missing gate decisions, non-upright starts, failed episodes, or
+missing per-skill gate coverage block strict acceptance. Warnings and diagnostics
+are kept separate from blockers. For example, low baseline task-success rates or
+hard-contract over-intervention are reported as warnings because they affect
+interpretation, but they do not by themselves force `ONLINE_NO_GO`.
+
+The audit must not force a `PASS_STRICT_ONLINE` result. If the real data still
+fails safety or task-success criteria, status remains `ONLINE_NO_GO` and the
+report lists actionable blockers such as insufficient CASA-vs-SONIC unsafe
+reduction or excessive task-success drop.
 
 ## Outputs And Reproducibility
 

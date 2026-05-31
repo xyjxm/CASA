@@ -168,6 +168,26 @@ def _manifest(
         "episodes_per_seed": episodes_per_seed,
         "dry_run": bool(args.dry_run),
         "smoke": bool(args.smoke),
+        "gate_inputs": {
+            "thresholds_json": str(args.phase5_root / "conformal_thresholds.json"),
+            "raw_critic_checkpoint": str(args.phase4_root / "raw_critic" / "raw_critic.pt"),
+            "feature_schema": str(args.phase4_root / "dataset_v1" / "feature_schema.json"),
+        },
+        "runtime_inputs": {
+            "sim_log_dir": "" if args.sim_log_dir is None else str(args.sim_log_dir),
+            "zmq_host": args.zmq_host,
+            "zmq_port": args.zmq_port,
+            "publish_fps": args.publish_fps,
+            "pre_window_seconds": args.pre_window_seconds,
+            "post_horizon": args.post_horizon,
+        },
+        "expected_artifacts": [
+            "online_episode_results.csv",
+            "gate_decisions.csv",
+            "method_summary.csv",
+            "method_summary.json",
+            "online_experiment_manifest.json",
+        ],
         "notes": [
             "All methods receive the same scene command and deterministic skill sequence for each seed/episode.",
             "Rejected candidate skills execute PassiveSkill(mode='stop') as fallback.",
