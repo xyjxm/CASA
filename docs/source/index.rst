@@ -94,6 +94,7 @@ Documentation
    tutorials/sonic_stage1_smoke
    tutorials/sonic_stage2_naive_baseline
    tutorials/sonic_stage3_metrics
+   tutorials/casa_plan_a_progress_report_20260531
 
 .. toctree::
    :maxdepth: 2
