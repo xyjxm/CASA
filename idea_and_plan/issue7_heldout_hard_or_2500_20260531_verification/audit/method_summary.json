@@ -1,0 +1,32 @@
+{
+  "methods": {
+    "casa_a_hard_or_recovery": {
+      "completed_count": 1250,
+      "episode_count": 1250,
+      "failed_or_unverified": 0,
+      "fallback_count": 4851,
+      "fallback_rate_per_episode": 3.8808,
+      "mean_completion_time_s": 22.193561289405825,
+      "method": "casa_a_hard_or_recovery",
+      "method_display": "SONIC + CASA-A hard-OR adaptive recovery",
+      "task_success_count": 413,
+      "task_success_rate": 0.3304,
+      "unsafe_invocation_count": 3738,
+      "unsafe_invocation_rate_per_episode": 2.9904
+    },
+    "sonic_only": {
+      "completed_count": 1250,
+      "episode_count": 1250,
+      "failed_or_unverified": 0,
+      "fallback_count": 0,
+      "fallback_rate_per_episode": 0.0,
+      "mean_completion_time_s": 28.44609281692505,
+      "method": "sonic_only",
+      "method_display": "SONIC-only",
+      "task_success_count": 27,
+      "task_success_rate": 0.0216,
+      "unsafe_invocation_count": 8966,
+      "unsafe_invocation_rate_per_episode": 7.1728
+    }
+  }
+}

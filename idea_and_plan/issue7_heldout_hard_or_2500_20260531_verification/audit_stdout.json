@@ -1,0 +1,381 @@
+{
+  "actionable_blockers": [],
+  "blocking_reasons": [],
+  "checks": {
+    "all_episodes_completed": true,
+    "all_expected_methods_present": true,
+    "all_initial_upright_ok": true,
+    "casa_task_success_drop_abs_le_10pp": true,
+    "casa_task_success_drop_rel_le_30pct": true,
+    "casa_vs_hard_unsafe_reduction_ge_20pct_or_undefined": true,
+    "casa_vs_sonic_unsafe_reduction_ge_40pct": true,
+    "each_completed_episode_has_expected_decisions": true,
+    "expected_episode_count_met": true,
+    "expected_method_seed_episode_grid_complete": true,
+    "gate_decisions_present": true,
+    "online_artifacts_schema_valid": true,
+    "per_skill_decision_coverage_present": true
+  },
+  "completed_count": 2500,
+  "diagnostics": {
+    "artifact_validation": {
+      "completed_episode_count": 2500,
+      "decision_count": 20000,
+      "decision_rows_valid": true,
+      "episode_count": 2500,
+      "episode_rows_valid": true,
+      "expected_grid_available": true,
+      "expected_grid_count": 2500,
+      "extra_expected_episode_count": 0,
+      "extra_expected_episode_examples": [],
+      "missing_decision_episode_count": 0,
+      "missing_decision_episode_examples": [],
+      "missing_expected_episode_count": 0,
+      "missing_expected_episode_examples": [],
+      "missing_per_skill_coverage": [],
+      "per_skill_decision_counts": {
+        "casa_a_hard_or_recovery": {
+          "gesture": 1250,
+          "passive": 2500,
+          "turn": 2500,
+          "walk": 3750
+        },
+        "sonic_only": {
+          "gesture": 1250,
+          "passive": 2500,
+          "turn": 2500,
+          "walk": 3750
+        }
+      }
+    },
+    "baseline_comparisons": {
+      "casa_vs_sonic": {
+        "baseline_fallback_rate_per_episode": 0.0,
+        "baseline_method": "sonic_only",
+        "baseline_task_success_rate": 0.0216,
+        "baseline_unsafe_invocation_count": 8966,
+        "method": "casa_a_hard_or_recovery",
+        "method_fallback_rate_per_episode": 3.8808,
+        "method_task_success_rate": 0.3304,
+        "method_unsafe_invocation_count": 3738,
+        "task_success_drop_abs": -0.3088,
+        "task_success_drop_rel": -14.296296296296296,
+        "unsafe_reduction": 0.5830916796787865
+      }
+    },
+    "confidence_intervals": {
+      "casa_a_hard_or_recovery": {
+        "task_success_rate_wilson_95": {
+          "high": 0.35696010976148723,
+          "low": 0.3048791528694544
+        },
+        "unsafe_invocation_rate_per_episode": 2.9904
+      },
+      "sonic_only": {
+        "task_success_rate_wilson_95": {
+          "high": 0.031244897549454625,
+          "low": 0.014886607418956057
+        },
+        "unsafe_invocation_rate_per_episode": 7.1728
+      }
+    },
+    "criteria": {
+      "episodes_per_seed": 25,
+      "expected_episodes": 2500,
+      "expected_methods": [
+        "sonic_only",
+        "casa_a_hard_or_recovery"
+      ],
+      "expected_seeds": [
+        9101,
+        9102,
+        9103,
+        9104,
+        9105,
+        9106,
+        9107,
+        9108,
+        9109,
+        9110,
+        9111,
+        9112,
+        9113,
+        9114,
+        9115,
+        9116,
+        9117,
+        9118,
+        9119,
+        9120,
+        9121,
+        9122,
+        9123,
+        9124,
+        9125,
+        9126,
+        9127,
+        9128,
+        9129,
+        9130,
+        9131,
+        9132,
+        9133,
+        9134,
+        9135,
+        9136,
+        9137,
+        9138,
+        9139,
+        9140,
+        9141,
+        9142,
+        9143,
+        9144,
+        9145,
+        9146,
+        9147,
+        9148,
+        9149,
+        9150
+      ],
+      "max_task_success_drop_abs": 0.1,
+      "max_task_success_drop_rel": 0.3,
+      "min_hard_unsafe_reduction": 0.2,
+      "min_sonic_unsafe_reduction": 0.4,
+      "skills_per_episode": 8
+    },
+    "deduped_decision_row_count": 20000,
+    "deduped_episode_row_count": 2500,
+    "lane_summary_count": 0,
+    "per_skill_decisions": {
+      "casa_a_hard_or_recovery": {
+        "gesture": {
+          "decision_count": 1250,
+          "fallback_count": 128,
+          "fallback_rate": 0.1024,
+          "hard_contract_fixed_reject_count": 42,
+          "raw_critic_risk_max": 0.9999990463256836,
+          "raw_critic_risk_mean": 0.11002804547561673,
+          "raw_critic_risk_min": 1.8883166603700374e-06,
+          "reject_count": 128,
+          "reject_rate": 0.1024,
+          "result_status_counts": {
+            "failed": 1,
+            "success": 1249
+          }
+        },
+        "passive": {
+          "decision_count": 2500,
+          "fallback_count": 733,
+          "fallback_rate": 0.2932,
+          "hard_contract_fixed_reject_count": 729,
+          "raw_critic_risk_max": 0.9999996423721313,
+          "raw_critic_risk_mean": 0.3154338489675794,
+          "raw_critic_risk_min": 2.1223804651526734e-06,
+          "reject_count": 733,
+          "reject_rate": 0.2932,
+          "result_status_counts": {
+            "failed": 257,
+            "success": 2231,
+            "unverified": 12
+          }
+        },
+        "turn": {
+          "decision_count": 2500,
+          "fallback_count": 815,
+          "fallback_rate": 0.326,
+          "hard_contract_fixed_reject_count": 623,
+          "raw_critic_risk_max": 0.9999994039535522,
+          "raw_critic_risk_mean": 0.3514042270750977,
+          "raw_critic_risk_min": 3.82250482289237e-06,
+          "reject_count": 815,
+          "reject_rate": 0.326,
+          "result_status_counts": {
+            "failed": 759,
+            "success": 1730,
+            "unverified": 11
+          }
+        },
+        "walk": {
+          "decision_count": 3750,
+          "fallback_count": 3175,
+          "fallback_rate": 0.8466666666666667,
+          "hard_contract_fixed_reject_count": 1039,
+          "raw_critic_risk_max": 0.9999997615814209,
+          "raw_critic_risk_mean": 0.8640145462347214,
+          "raw_critic_risk_min": 2.140933065675199e-05,
+          "reject_count": 3175,
+          "reject_rate": 0.8466666666666667,
+          "result_status_counts": {
+            "failed": 1559,
+            "success": 2174,
+            "unverified": 17
+          }
+        }
+      },
+      "sonic_only": {
+        "gesture": {
+          "decision_count": 1250,
+          "fallback_count": 0,
+          "fallback_rate": 0.0,
+          "hard_contract_fixed_reject_count": 1038,
+          "raw_critic_risk_max": 0.9999996423721313,
+          "raw_critic_risk_mean": 0.9508099442139892,
+          "raw_critic_risk_min": 1.922842557178228e-06,
+          "reject_count": 0,
+          "reject_rate": 0.0,
+          "result_status_counts": {
+            "failed": 3,
+            "success": 1247
+          }
+        },
+        "passive": {
+          "decision_count": 2500,
+          "fallback_count": 0,
+          "fallback_rate": 0.0,
+          "hard_contract_fixed_reject_count": 2145,
+          "raw_critic_risk_max": 0.9999996423721313,
+          "raw_critic_risk_mean": 0.9522393820383576,
+          "raw_critic_risk_min": 2.1414857656054664e-06,
+          "reject_count": 0,
+          "reject_rate": 0.0,
+          "result_status_counts": {
+            "failed": 369,
+            "success": 2129,
+            "unverified": 2
+          }
+        },
+        "turn": {
+          "decision_count": 2500,
+          "fallback_count": 0,
+          "fallback_rate": 0.0,
+          "hard_contract_fixed_reject_count": 2139,
+          "raw_critic_risk_max": 0.9999994039535522,
+          "raw_critic_risk_mean": 0.9460308941424198,
+          "raw_critic_risk_min": 3.0507910651067505e-06,
+          "reject_count": 0,
+          "reject_rate": 0.0,
+          "result_status_counts": {
+            "failed": 469,
+            "success": 2027,
+            "unverified": 4
+          }
+        },
+        "walk": {
+          "decision_count": 3750,
+          "fallback_count": 0,
+          "fallback_rate": 0.0,
+          "hard_contract_fixed_reject_count": 2145,
+          "raw_critic_risk_max": 0.9999997615814209,
+          "raw_critic_risk_mean": 0.9916109228031018,
+          "raw_critic_risk_min": 5.453859102999559e-06,
+          "reject_count": 0,
+          "reject_rate": 0.0,
+          "result_status_counts": {
+            "failed": 41,
+            "success": 3703,
+            "unverified": 6
+          }
+        }
+      }
+    },
+    "per_skill_online_labels": {
+      "by_method_skill": {
+        "casa_a_hard_or_recovery": {
+          "gesture": {
+            "safe": 867,
+            "total": 1250,
+            "unsafe": 381
+          },
+          "passive": {
+            "safe": 1473,
+            "total": 2500,
+            "unsafe": 1017
+          },
+          "turn": {
+            "safe": 1720,
+            "total": 2500,
+            "unsafe": 768
+          },
+          "walk": {
+            "safe": 2156,
+            "total": 3750,
+            "unsafe": 1572
+          }
+        },
+        "sonic_only": {
+          "gesture": {
+            "safe": 148,
+            "total": 1250,
+            "unsafe": 1102
+          },
+          "passive": {
+            "safe": 262,
+            "total": 2500,
+            "unsafe": 2236
+          },
+          "turn": {
+            "safe": 287,
+            "total": 2500,
+            "unsafe": 2209
+          },
+          "walk": {
+            "safe": 325,
+            "total": 3750,
+            "unsafe": 3419
+          }
+        }
+      },
+      "loaded_rollout_summary_count": 2500,
+      "malformed_rollout_summary_count": 0,
+      "missing_rollout_summary_count": 0
+    },
+    "raw_decision_row_count": null,
+    "raw_episode_row_count": null
+  },
+  "episode_count": 2500,
+  "expected_episodes": 2500,
+  "gate_decision_count": 20000,
+  "go": true,
+  "lane_summaries": [],
+  "method_summary": {
+    "casa_a_hard_or_recovery": {
+      "completed_count": 1250,
+      "episode_count": 1250,
+      "failed_or_unverified": 0,
+      "fallback_count": 4851,
+      "fallback_rate_per_episode": 3.8808,
+      "mean_completion_time_s": 22.193561289405825,
+      "method": "casa_a_hard_or_recovery",
+      "method_display": "SONIC + CASA-A hard-OR adaptive recovery",
+      "task_success_count": 413,
+      "task_success_rate": 0.3304,
+      "unsafe_invocation_count": 3738,
+      "unsafe_invocation_rate_per_episode": 2.9904
+    },
+    "sonic_only": {
+      "completed_count": 1250,
+      "episode_count": 1250,
+      "failed_or_unverified": 0,
+      "fallback_count": 0,
+      "fallback_rate_per_episode": 0.0,
+      "mean_completion_time_s": 28.44609281692505,
+      "method": "sonic_only",
+      "method_display": "SONIC-only",
+      "task_success_count": 27,
+      "task_success_rate": 0.0216,
+      "unsafe_invocation_count": 8966,
+      "unsafe_invocation_rate_per_episode": 7.1728
+    }
+  },
+  "methods": [
+    "casa_a_hard_or_recovery",
+    "sonic_only"
+  ],
+  "phase": "CASA Phase5 online main experiment",
+  "status": "PASS_STRICT_ONLINE",
+  "warning_reasons": [
+    "sonic_task_success_rate_low_relative_drop_check_is_unstable",
+    "hard_contract_relative_reduction_undefined"
+  ]
+}

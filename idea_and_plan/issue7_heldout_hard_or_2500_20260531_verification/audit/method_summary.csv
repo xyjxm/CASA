@@ -1,0 +1,3 @@
+method,method_display,episode_count,completed_count,failed_or_unverified,task_success_count,task_success_rate,unsafe_invocation_count,unsafe_invocation_rate_per_episode,fallback_count,fallback_rate_per_episode,mean_completion_time_s
+casa_a_hard_or_recovery,SONIC + CASA-A hard-OR adaptive recovery,1250,1250,0,413,0.3304,3738,2.9904,4851,3.8808,22.193561289405825
+sonic_only,SONIC-only,1250,1250,0,27,0.0216,8966,7.1728,0,0.0,28.44609281692505

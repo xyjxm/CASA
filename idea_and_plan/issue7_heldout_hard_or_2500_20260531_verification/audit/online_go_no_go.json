@@ -1,0 +1,56 @@
+{
+  "actionable_blockers": [],
+  "blocking_reasons": [],
+  "checks": {
+    "all_episodes_completed": true,
+    "all_expected_methods_present": true,
+    "all_initial_upright_ok": true,
+    "casa_task_success_drop_abs_le_10pp": true,
+    "casa_task_success_drop_rel_le_30pct": true,
+    "casa_vs_hard_unsafe_reduction_ge_20pct_or_undefined": true,
+    "casa_vs_sonic_unsafe_reduction_ge_40pct": true,
+    "each_completed_episode_has_expected_decisions": true,
+    "expected_episode_count_met": true,
+    "expected_method_seed_episode_grid_complete": true,
+    "gate_decisions_present": true,
+    "online_artifacts_schema_valid": true,
+    "per_skill_decision_coverage_present": true
+  },
+  "go": true,
+  "method_summary": {
+    "casa_a_hard_or_recovery": {
+      "completed_count": 1250,
+      "episode_count": 1250,
+      "failed_or_unverified": 0,
+      "fallback_count": 4851,
+      "fallback_rate_per_episode": 3.8808,
+      "mean_completion_time_s": 22.193561289405825,
+      "method": "casa_a_hard_or_recovery",
+      "method_display": "SONIC + CASA-A hard-OR adaptive recovery",
+      "task_success_count": 413,
+      "task_success_rate": 0.3304,
+      "unsafe_invocation_count": 3738,
+      "unsafe_invocation_rate_per_episode": 2.9904
+    },
+    "sonic_only": {
+      "completed_count": 1250,
+      "episode_count": 1250,
+      "failed_or_unverified": 0,
+      "fallback_count": 0,
+      "fallback_rate_per_episode": 0.0,
+      "mean_completion_time_s": 28.44609281692505,
+      "method": "sonic_only",
+      "method_display": "SONIC-only",
+      "task_success_count": 27,
+      "task_success_rate": 0.0216,
+      "unsafe_invocation_count": 8966,
+      "unsafe_invocation_rate_per_episode": 7.1728
+    }
+  },
+  "phase": "CASA Phase5 online",
+  "status": "PASS_STRICT_ONLINE",
+  "warning_reasons": [
+    "sonic_task_success_rate_low_relative_drop_check_is_unstable",
+    "hard_contract_relative_reduction_undefined"
+  ]
+}

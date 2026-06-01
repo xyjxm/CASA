@@ -1,0 +1,2 @@
+candidate_id,candidate_path,method,method_display,episodes,unsafe_invocation_count,unsafe_reduction_vs_sonic,task_success_rate,task_success_drop_rel_vs_sonic,fallback_rate_per_episode,pilot_pass,status
+issue7_heldout_2500,/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase5_conformal_baselines_20260522/issue7_heldout_hard_or_2500_20260531/merged,casa_a_hard_or_recovery,SONIC + CASA-A hard-OR adaptive recovery,1250,3738,0.5830916796787865,0.3304,-14.296296296296296,3.8808,True,evaluated
