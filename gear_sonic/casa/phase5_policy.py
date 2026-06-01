@@ -13,6 +13,7 @@ ONLINE_CANDIDATE_METHODS = (
     "casa_a_recovery_per_skill",
     "casa_a_hard_or_recovery",
     "casa_a_receding_recovery",
+    "casa_a_hard_or_receding_recovery",
 )
 ONLINE_METHOD_ORDER = (*METHOD_ORDER, *ONLINE_CANDIDATE_METHODS)
 ONLINE_METHOD_DISPLAY = {
@@ -21,6 +22,7 @@ ONLINE_METHOD_DISPLAY = {
     "casa_a_recovery_per_skill": "SONIC + CASA-A adaptive recovery",
     "casa_a_hard_or_recovery": "SONIC + CASA-A hard-OR adaptive recovery",
     "casa_a_receding_recovery": "SONIC + CASA-A receding recovery",
+    "casa_a_hard_or_receding_recovery": "SONIC + CASA-A hard-OR receding recovery",
 }
 
 
@@ -53,6 +55,8 @@ def method_behavior(method: str) -> MethodBehavior:
         )
     if method == "casa_a_receding_recovery":
         return MethodBehavior(fallback_policy="adaptive_retry", hard_or_casa=False, segment_long_skills=True)
+    if method == "casa_a_hard_or_receding_recovery":
+        return MethodBehavior(fallback_policy="adaptive_retry", hard_or_casa=True, segment_long_skills=True)
     if method == "casa_a_hard_or_per_skill":
         return MethodBehavior(fallback_policy="stop", hard_or_casa=True, segment_long_skills=False)
     return MethodBehavior(fallback_policy="stop", hard_or_casa=False, segment_long_skills=False)
@@ -96,6 +100,7 @@ def evaluate_online_method(
         "casa_a_per_skill",
         "casa_a_recovery_per_skill",
         "casa_a_receding_recovery",
+        "casa_a_hard_or_receding_recovery",
         "casa_a_hard_or_per_skill",
         "casa_a_hard_or_recovery",
     }:
@@ -119,7 +124,7 @@ def parse_threshold_scale_by_skill(raw: str) -> dict[str, float]:
     output: dict[str, float] = {}
     for item in raw.split(","):
         if not item.strip():
-            continue
+            raise ValueError(f"Invalid threshold scale item {item!r}; skill must not be empty")
         if "=" not in item:
             raise ValueError(f"Invalid threshold scale item {item!r}; expected skill=scale")
         skill, value = [part.strip() for part in item.split("=", 1)]
@@ -141,10 +146,17 @@ def scale_thresholds(
     if not math.isfinite(global_scale) or global_scale < 0:
         raise ValueError("--threshold-scale-global must be finite and >= 0")
     by_skill = by_skill or {}
+    per_skill = thresholds.get("per_skill")
+    if not isinstance(per_skill, dict) or not per_skill:
+        raise ValueError("thresholds must include a non-empty per_skill map for per-skill CASA methods")
+    unknown = sorted(set(by_skill) - set(per_skill))
+    if unknown:
+        valid = sorted(str(skill) for skill in per_skill)
+        raise ValueError(f"Unknown per-skill threshold scale keys: {unknown}; valid skill names are {valid}")
     scaled = {
         "global": float(thresholds["global"]) * global_scale,
         "per_skill": {},
     }
-    for skill, threshold in thresholds.get("per_skill", {}).items():
+    for skill, threshold in per_skill.items():
         scaled["per_skill"][skill] = float(threshold) * by_skill.get(skill, global_scale)
     return scaled

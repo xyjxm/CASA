@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import random
@@ -38,7 +39,12 @@ from gear_sonic.casa.phase5_policy import (  # noqa: E402
     parse_threshold_scale_by_skill,
     scale_thresholds,
 )
-from gear_sonic.casa.phase5_recovery import choose_fallback_policy, plan_recovery, split_skill  # noqa: E402
+from gear_sonic.casa.phase5_recovery import (  # noqa: E402
+    choose_fallback_policy,
+    plan_recovery,
+    rewrite_skill_for_retry,
+    split_skill,
+)
 from gear_sonic.casa.runner_utils import create_executor  # noqa: E402
 from gear_sonic.casa.scene.phase2_v2 import make_phase2_v2_scene_command  # noqa: E402
 from gear_sonic.casa.skills import GestureSkill, PassiveSkill, TurnSkill, WalkSkill  # noqa: E402
@@ -378,6 +384,420 @@ class Phase5Gate:
             return float(self.torch.sigmoid(self.model(tensor)).item())
 
 
+@dataclass(frozen=True)
+class SegmentPolicyResult:
+    fallback_count_delta: int
+    next_skill_idx: int
+
+
+def _execute_segment_with_policy(
+    *,
+    executor: Any,
+    gate: Any,
+    method: str,
+    segment: Any,
+    original_skill_idx: int,
+    segment_idx: int,
+    segment_count: int,
+    initial_decision: dict[str, Any] | None,
+    episode_id: str,
+    episode_index: int,
+    seed: int,
+    sim_log_dir: Path | None,
+    scene_props: dict[str, Any],
+    fallback_policy: str,
+    fallback_duration: float,
+    adaptive_retry_count: int,
+    next_skill_idx: int,
+    decisions: list[dict[str, Any]],
+) -> tuple[int, int]:
+    decision = initial_decision or gate.decide(
+        method=method,
+        skill=segment,
+        sim_log_dir=sim_log_dir,
+        scene_props=scene_props,
+    )
+    parent_skill_idx = next_skill_idx
+    if decision["decision"] != "reject":
+        skill_idx = next_skill_idx
+        result = executor.execute_one(segment, episode_id=episode_id, skill_idx=skill_idx)
+        gate.remember_result(result)
+        _append_decision_row(
+            decisions,
+            decision,
+            method=method,
+            episode_id=episode_id,
+            episode_index=episode_index,
+            seed=seed,
+            skill_idx=skill_idx,
+            parent_skill_idx=parent_skill_idx,
+            original_skill_idx=original_skill_idx,
+            segment_idx=segment_idx,
+            segment_count=segment_count,
+            original_candidate_skill=segment,
+            executed_skill=segment,
+            result=result,
+            fallback_policy=fallback_policy,
+            fallback_executed=False,
+            attempt_type="candidate_allow",
+            attempt_index=0,
+            recovery_retry_count=0,
+            recovery_attempt_count=0,
+            retry_decision="",
+            retry_reject_reason="",
+            retry_executed=False,
+            task_progress_executed=True,
+            final_segment_outcome="candidate_allow",
+        )
+        return 0, next_skill_idx + 1
+
+    if fallback_policy == "adaptive_retry":
+        result = _execute_recovery_retry_loop(
+            executor=executor,
+            gate=gate,
+            method=method,
+            segment=segment,
+            initial_decision=decision,
+            episode_id=episode_id,
+            episode_index=episode_index,
+            seed=seed,
+            sim_log_dir=sim_log_dir,
+            scene_props=scene_props,
+            fallback_duration=fallback_duration,
+            adaptive_retry_count=adaptive_retry_count,
+            next_skill_idx=next_skill_idx,
+            parent_skill_idx=parent_skill_idx,
+            original_skill_idx=original_skill_idx,
+            segment_idx=segment_idx,
+            segment_count=segment_count,
+            decisions=decisions,
+        )
+        return result.fallback_count_delta, result.next_skill_idx
+
+    recovery = plan_recovery(
+        segment,
+        fallback_policy=fallback_policy,
+        fallback_duration=fallback_duration,
+        max_retry_count=adaptive_retry_count,
+        reject_reason=str(decision.get("reject_reason", "")),
+        raw_risk=_float(decision.get("raw_critic_risk")),
+        hard_contract_fixed_reject=_decision_hard_fixed(decision),
+    )
+    skill_idx = next_skill_idx
+    result = executor.execute_one(recovery.skill, episode_id=episode_id, skill_idx=skill_idx)
+    gate.remember_result(result)
+    task_progress = _task_progress_executed(
+        candidate_skill=segment,
+        executed_skill=recovery.skill,
+        attempt_type="recovery_only",
+    )
+    _append_decision_row(
+        decisions,
+        decision,
+        method=method,
+        episode_id=episode_id,
+        episode_index=episode_index,
+        seed=seed,
+        skill_idx=skill_idx,
+        parent_skill_idx=parent_skill_idx,
+        original_skill_idx=original_skill_idx,
+        segment_idx=segment_idx,
+        segment_count=segment_count,
+        original_candidate_skill=segment,
+        executed_skill=recovery.skill,
+        result=result,
+        fallback_policy=fallback_policy,
+        fallback_executed=True,
+        recovery_action=recovery.action,
+        recovery_reason=recovery.reason,
+        attempt_type="recovery_only",
+        attempt_index=0,
+        recovery_retry_count=recovery.retry_count,
+        recovery_attempt_count=1,
+        retry_decision="",
+        retry_reject_reason="",
+        retry_executed=False,
+        task_progress_executed=task_progress,
+        final_segment_outcome="recovery_only",
+    )
+    return 1, next_skill_idx + 1
+
+
+def _execute_recovery_retry_loop(
+    *,
+    executor: Any,
+    gate: Any,
+    method: str,
+    segment: Any,
+    initial_decision: dict[str, Any],
+    episode_id: str,
+    episode_index: int,
+    seed: int,
+    sim_log_dir: Path | None,
+    scene_props: dict[str, Any],
+    fallback_duration: float,
+    adaptive_retry_count: int,
+    next_skill_idx: int,
+    parent_skill_idx: int,
+    original_skill_idx: int,
+    segment_idx: int,
+    segment_count: int,
+    decisions: list[dict[str, Any]],
+) -> SegmentPolicyResult:
+    max_retry_count = max(0, int(adaptive_retry_count))
+    fallback_count = 0
+    current_skill_idx = next_skill_idx
+    last_recovery_skill: Any = PassiveSkill(duration=max(0.05, float(fallback_duration)), mode="stop")
+    last_recovery_action = ""
+    last_recovery_reason = ""
+    last_retry_decision: dict[str, Any] | None = None
+
+    for attempt_index in range(max_retry_count + 1):
+        recovery = plan_recovery(
+            segment,
+            fallback_policy="adaptive_retry",
+            fallback_duration=fallback_duration,
+            max_retry_count=max_retry_count,
+            reject_reason=str(initial_decision.get("reject_reason", "")),
+            raw_risk=_float(initial_decision.get("raw_critic_risk")),
+            hard_contract_fixed_reject=_decision_hard_fixed(initial_decision),
+        )
+        last_recovery_skill = recovery.skill
+        last_recovery_action = recovery.action
+        last_recovery_reason = recovery.reason
+        recovery_result = executor.execute_one(recovery.skill, episode_id=episode_id, skill_idx=current_skill_idx)
+        fallback_count += 1
+        gate.remember_result(recovery_result)
+        _append_decision_row(
+            decisions,
+            initial_decision,
+            method=method,
+            episode_id=episode_id,
+            episode_index=episode_index,
+            seed=seed,
+            skill_idx=current_skill_idx,
+            parent_skill_idx=parent_skill_idx,
+            original_skill_idx=original_skill_idx,
+            segment_idx=segment_idx,
+            segment_count=segment_count,
+            original_candidate_skill=segment,
+            executed_skill=recovery.skill,
+            result=recovery_result,
+            fallback_policy="adaptive_retry",
+            fallback_executed=True,
+            recovery_action=recovery.action,
+            recovery_reason=recovery.reason,
+            attempt_type="recovery_attempt",
+            attempt_index=attempt_index,
+            recovery_retry_count=recovery.retry_count,
+            recovery_attempt_count=attempt_index + 1,
+            retry_decision="",
+            retry_reject_reason="",
+            retry_executed=False,
+            task_progress_executed=_task_progress_executed(
+                candidate_skill=segment,
+                executed_skill=recovery.skill,
+                attempt_type="recovery_attempt",
+            ),
+            final_segment_outcome="recovery_attempt",
+        )
+        current_skill_idx += 1
+
+        retry_skill = rewrite_skill_for_retry(
+            segment,
+            attempt_index=attempt_index,
+            max_retry_count=max_retry_count,
+            fallback_duration=fallback_duration,
+            scene_props=scene_props,
+        )
+        retry_decision = gate.decide(
+            method=method,
+            skill=retry_skill,
+            sim_log_dir=sim_log_dir,
+            scene_props=scene_props,
+        )
+        last_retry_decision = retry_decision
+        retry_allowed = retry_decision["decision"] != "reject"
+        _append_decision_row(
+            decisions,
+            retry_decision,
+            method=method,
+            episode_id=episode_id,
+            episode_index=episode_index,
+            seed=seed,
+            skill_idx=current_skill_idx,
+            parent_skill_idx=parent_skill_idx,
+            original_skill_idx=original_skill_idx,
+            segment_idx=segment_idx,
+            segment_count=segment_count,
+            original_candidate_skill=segment,
+            executed_skill=retry_skill,
+            result=None,
+            fallback_policy="adaptive_retry",
+            fallback_executed=False,
+            attempt_type="retry_decision",
+            attempt_index=attempt_index,
+            recovery_retry_count=recovery.retry_count,
+            recovery_attempt_count=attempt_index + 1,
+            retry_decision=retry_decision["decision"],
+            retry_reject_reason="" if retry_allowed else str(retry_decision.get("reject_reason", "")),
+            retry_executed=False,
+            task_progress_executed=False,
+            final_segment_outcome="retry_allowed" if retry_allowed else "retry_rejected",
+        )
+        current_skill_idx += 1
+        if not retry_allowed:
+            continue
+
+        retry_result = executor.execute_one(retry_skill, episode_id=episode_id, skill_idx=current_skill_idx)
+        gate.remember_result(retry_result)
+        _append_decision_row(
+            decisions,
+            retry_decision,
+            method=method,
+            episode_id=episode_id,
+            episode_index=episode_index,
+            seed=seed,
+            skill_idx=current_skill_idx,
+            parent_skill_idx=parent_skill_idx,
+            original_skill_idx=original_skill_idx,
+            segment_idx=segment_idx,
+            segment_count=segment_count,
+            original_candidate_skill=segment,
+            executed_skill=retry_skill,
+            result=retry_result,
+            fallback_policy="adaptive_retry",
+            fallback_executed=False,
+            attempt_type="retry_executed",
+            attempt_index=attempt_index,
+            recovery_retry_count=recovery.retry_count,
+            recovery_attempt_count=attempt_index + 1,
+            retry_decision="allow",
+            retry_reject_reason="",
+            retry_executed=True,
+            task_progress_executed=True,
+            final_segment_outcome="recovery_then_retry",
+        )
+        return SegmentPolicyResult(fallback_count, current_skill_idx + 1)
+
+    final_decision = last_retry_decision or initial_decision
+    _append_decision_row(
+        decisions,
+        final_decision,
+        method=method,
+        episode_id=episode_id,
+        episode_index=episode_index,
+        seed=seed,
+        skill_idx=current_skill_idx,
+        parent_skill_idx=parent_skill_idx,
+        original_skill_idx=original_skill_idx,
+        segment_idx=segment_idx,
+        segment_count=segment_count,
+        original_candidate_skill=segment,
+        executed_skill=last_recovery_skill,
+        result=None,
+        fallback_policy="adaptive_retry",
+        fallback_executed=False,
+        recovery_action=last_recovery_action,
+        recovery_reason=last_recovery_reason,
+        attempt_type="final_reject",
+        attempt_index=max_retry_count,
+        recovery_retry_count=max_retry_count,
+        recovery_attempt_count=max_retry_count + 1,
+        retry_decision="reject",
+        retry_reject_reason=str(final_decision.get("reject_reason", "")),
+        retry_executed=False,
+        task_progress_executed=False,
+        final_segment_outcome="recovery_only_final_reject",
+    )
+    return SegmentPolicyResult(fallback_count, current_skill_idx + 1)
+
+
+def _append_decision_row(
+    rows: list[dict[str, Any]],
+    decision: dict[str, Any],
+    *,
+    method: str,
+    episode_id: str,
+    episode_index: int,
+    seed: int,
+    skill_idx: int,
+    parent_skill_idx: int,
+    original_skill_idx: int,
+    segment_idx: int,
+    segment_count: int,
+    original_candidate_skill: Any,
+    executed_skill: Any,
+    result: Any | None,
+    fallback_policy: str,
+    fallback_executed: bool,
+    attempt_type: str,
+    attempt_index: int,
+    recovery_retry_count: int,
+    recovery_attempt_count: int,
+    retry_decision: str,
+    retry_reject_reason: str,
+    retry_executed: bool,
+    task_progress_executed: bool,
+    final_segment_outcome: str,
+    recovery_action: str = "",
+    recovery_reason: str = "",
+) -> None:
+    row = dict(decision)
+    row["method"] = method
+    row.setdefault("candidate_skill", getattr(executed_skill, "name", ""))
+    row.setdefault("candidate_params_json", _skill_params_json(executed_skill))
+    row.update(
+        {
+            "episode_id": episode_id,
+            "episode_index": episode_index,
+            "seed": seed,
+            "skill_idx": skill_idx,
+            "attempt_type": attempt_type,
+            "attempt_index": attempt_index,
+            "parent_skill_idx": parent_skill_idx,
+            "original_skill_idx": original_skill_idx,
+            "segment_idx": segment_idx,
+            "segment_count": segment_count,
+            "original_candidate_skill": original_candidate_skill.name,
+            "original_candidate_params_json": _skill_params_json(original_candidate_skill),
+            "executed_skill": executed_skill.name,
+            "executed_params_json": _skill_params_json(executed_skill),
+            "fallback_policy": fallback_policy,
+            "fallback_executed": int(bool(fallback_executed)),
+            "recovery_action": recovery_action,
+            "recovery_reason": recovery_reason,
+            "recovery_attempt_count": recovery_attempt_count,
+            "retry_decision": retry_decision,
+            "retry_reject_reason": retry_reject_reason,
+            "retry_executed": int(bool(retry_executed)),
+            "task_progress_executed": int(bool(task_progress_executed)),
+            "final_segment_outcome": final_segment_outcome,
+            "recovery_retry_count": recovery_retry_count,
+            "result_status": "unverified" if result is None else getattr(result, "status", ""),
+            "result_termination_reason": "" if result is None else getattr(result, "termination_reason", ""),
+        }
+    )
+    rows.append(row)
+
+
+def _skill_params_json(skill: Any) -> str:
+    return json.dumps(skill.params(), sort_keys=True)
+
+
+def _task_progress_executed(*, candidate_skill: Any, executed_skill: Any, attempt_type: str) -> bool:
+    if attempt_type in {"candidate_allow", "retry_executed"}:
+        return True
+    if executed_skill.name == candidate_skill.name and candidate_skill.name != "passive":
+        return True
+    return False
+
+
+def _decision_hard_fixed(decision: dict[str, Any]) -> bool:
+    text = str(decision.get("hard_contract_fixed_reject", 0)).strip().lower()
+    return text in {"1", "1.0", "true", "t", "yes", "y"}
+
+
 def _run_one_episode(
     *,
     args: argparse.Namespace,
@@ -494,7 +914,7 @@ def _run_one_episode(
             error = "initial_upright_failed_after_policy_start"
         else:
             start_wall = time.time()
-            execution_skill_idx = 0
+            next_skill_idx = 1
             behavior = method_behavior(method)
             fallback_policy = choose_fallback_policy(behavior.fallback_policy, args.fallback_policy)
             use_segmentation = bool(args.segment_long_skills or behavior.segment_long_skills)
@@ -506,7 +926,6 @@ def _run_one_episode(
                     segments = [skill]
                 shared_decision: dict[str, Any] | None = None
                 for segment_idx, segment in enumerate(segments, start=1):
-                    execution_skill_idx += 1
                     if shared_decision is None or recheck_segments:
                         decision = gate.decide(
                             method=method,
@@ -520,54 +939,27 @@ def _run_one_episode(
                         decision = dict(shared_decision)
                         decision["candidate_skill"] = segment.name
                         decision["candidate_params_json"] = json.dumps(segment.params(), sort_keys=True)
-                    executed_skill = segment
-                    recovery_action = ""
-                    recovery_reason = ""
-                    recovery_retry_count = 0
-                    if decision["decision"] == "reject":
-                        fallback_count += 1
-                        recovery = plan_recovery(
-                            segment,
-                            fallback_policy=fallback_policy,
-                            fallback_duration=args.fallback_duration,
-                            max_retry_count=args.adaptive_retry_count,
-                            reject_reason=str(decision.get("reject_reason", "")),
-                            raw_risk=_float(decision.get("raw_critic_risk")),
-                            hard_contract_fixed_reject=bool(int(decision.get("hard_contract_fixed_reject", 0))),
-                        )
-                        executed_skill = recovery.skill
-                        recovery_action = recovery.action
-                        recovery_reason = recovery.reason
-                        recovery_retry_count = recovery.retry_count
-                    result = executor.execute_one(
-                        executed_skill,
+                    fallback_delta, next_skill_idx = _execute_segment_with_policy(
+                        executor=executor,
+                        gate=gate,
+                        method=method,
+                        segment=segment,
+                        original_skill_idx=original_skill_idx,
+                        segment_idx=segment_idx,
+                        segment_count=len(segments),
+                        initial_decision=decision,
                         episode_id=episode_id,
-                        skill_idx=execution_skill_idx,
+                        episode_index=episode_index,
+                        seed=seed,
+                        sim_log_dir=sim_log_dir,
+                        scene_props=scene_props,
+                        fallback_policy=fallback_policy,
+                        fallback_duration=args.fallback_duration,
+                        adaptive_retry_count=args.adaptive_retry_count,
+                        next_skill_idx=next_skill_idx,
+                        decisions=decisions,
                     )
-                    gate.remember_result(result)
-                    decision.update(
-                        {
-                            "episode_id": episode_id,
-                            "episode_index": episode_index,
-                            "seed": seed,
-                            "skill_idx": execution_skill_idx,
-                            "original_skill_idx": original_skill_idx,
-                            "segment_idx": segment_idx,
-                            "segment_count": len(segments),
-                            "executed_skill": executed_skill.name,
-                            "executed_params_json": json.dumps(executed_skill.params(), sort_keys=True),
-                            "fallback_policy": fallback_policy,
-                            "fallback_executed": int(
-                                executed_skill.name != segment.name or decision["decision"] == "reject"
-                            ),
-                            "recovery_action": recovery_action,
-                            "recovery_reason": recovery_reason,
-                            "recovery_retry_count": recovery_retry_count,
-                            "result_status": result.status,
-                            "result_termination_reason": result.termination_reason,
-                        }
-                    )
-                    decisions.append(decision)
+                    fallback_count += fallback_delta
     except Exception as exc:  # noqa: BLE001 - keep the experiment moving and logged.
         status = "failed"
         error = repr(exc)

@@ -12,6 +12,20 @@ from gear_sonic.casa.phase5 import MAIN_SKILLS, relative_reduction
 from gear_sonic.casa.phase5_online import method_summary_rows
 from gear_sonic.casa.phase5_policy import method_display
 
+RETRY_DIAGNOSTIC_FIELDS = (
+    "attempt_type",
+    "attempt_index",
+    "parent_skill_idx",
+    "original_candidate_skill",
+    "original_candidate_params_json",
+    "recovery_attempt_count",
+    "retry_decision",
+    "retry_reject_reason",
+    "retry_executed",
+    "task_progress_executed",
+    "final_segment_outcome",
+)
+
 
 def build_failure_breakdown(
     episode_rows: list[dict[str, Any]],
@@ -24,6 +38,7 @@ def build_failure_breakdown(
     method_summary = {row["method"]: row for row in method_summary_rows(episode_rows)}
     per_method = _per_method_breakdown(episode_rows, decision_rows, labels)
     per_skill = _per_skill_breakdown(decision_rows, labels)
+    missing_retry_fields = _missing_retry_fields(decision_rows)
     target_buckets = _bucket_breakdown(episode_rows, episode_meta, "target_bucket")
     scene_complexity = _bucket_breakdown(episode_rows, episode_meta, "scene_complexity")
     clusters = _top_failure_clusters(decision_rows, labels, episode_meta)
@@ -54,6 +69,9 @@ def build_failure_breakdown(
         "scene_complexity": scene_complexity,
         "top_failure_clusters": clusters,
         "recommendations": recommendations,
+        "diagnostics": {
+            "missing_retry_fields": missing_retry_fields,
+        },
         "evidence_loading": {
             "rollout_summary_loaded": sum(1 for meta in episode_meta.values() if meta.get("loaded")),
             "rollout_summary_missing": sum(1 for meta in episode_meta.values() if meta.get("missing")),
@@ -84,14 +102,16 @@ def failure_breakdown_markdown(breakdown: dict[str, Any]) -> str:
         lines.append(f"- `{item['category']}`: {item['evidence']} Next: {item['next_step']}")
     lines.extend(["", "## Per-method Breakdown", ""])
     lines.append(
-        "| method | episodes | task_success | unsafe | reject | allow_then_unsafe | reject_but_still_unsafe |"
+        "| method | episodes | task_success | unsafe | reject | allow_then_unsafe | "
+        "reject_but_still_unsafe | retry_success | final_reject |"
     )
-    lines.append("|---|---:|---:|---:|---:|---:|---:|")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for method, row in sorted(breakdown["per_method"].items()):
         lines.append(
             f"| {method_display(method)} | {row['episode_count']} | {_fmt(row['task_success_rate'])} | "
             f"{row['unsafe_invocation_count']} | {row['reject_count']} | {row['allow_then_unsafe']} | "
-            f"{row['reject_but_still_unsafe']} |"
+            f"{row['reject_but_still_unsafe']} | {_fmt_count(row.get('reject_then_recovery_then_retry'))} | "
+            f"{_fmt_count(row.get('reject_then_all_retries_rejected'))} |"
         )
     lines.extend(["", "## Per-skill Breakdown", "", "```json"])
     lines.append(json.dumps(breakdown["per_skill"], indent=2, sort_keys=True))
@@ -184,10 +204,23 @@ def _add_decision_counts(
     unsafe_after_allow = 0
     unsafe_after_reject = 0
     low_risk_unsafe = 0
+    allow_then_unsafe_segment = 0
+    reject_then_recovery_only = 0
+    reject_then_recovery_then_retry = 0
+    reject_then_retry_allowed_but_unsafe = 0
+    reject_then_all_retries_rejected = 0
+    recovery_only_final_reject = 0
+    no_task_progress_after_reject = 0
+    unsafe_after_recovery = 0
+    hard_contract_caught_casa_missed = 0
+    over_rejection_safe_segments = 0
+    has_retry_fields = _has_retry_fields(rows)
     for row in rows:
         label = labels.get(_decision_key(row), {})
+        has_label = bool(label)
         unsafe = label.get("safe_label") == "unsafe"
         risk = _float_or_none(row.get("raw_critic_risk"))
+        threshold = _float_or_none(row.get("threshold"))
         if unsafe and risk is not None and risk < 0.5:
             low_risk_unsafe += 1
         if unsafe and row.get("decision") == "allow":
@@ -196,6 +229,37 @@ def _add_decision_counts(
         if unsafe and row.get("decision") == "reject":
             reject_but_still_unsafe += 1
             unsafe_after_reject += 1
+        if not has_retry_fields:
+            continue
+        attempt_type = str(row.get("attempt_type", ""))
+        outcome = str(row.get("final_segment_outcome", ""))
+        if unsafe and attempt_type == "candidate_allow":
+            allow_then_unsafe_segment += 1
+        if attempt_type == "recovery_only":
+            reject_then_recovery_only += 1
+        if attempt_type == "retry_executed" or outcome == "recovery_then_retry":
+            reject_then_recovery_then_retry += 1
+        if unsafe and attempt_type == "retry_executed":
+            reject_then_retry_allowed_but_unsafe += 1
+        if attempt_type == "final_reject" or outcome == "recovery_only_final_reject":
+            reject_then_all_retries_rejected += 1
+        if outcome == "recovery_only_final_reject":
+            recovery_only_final_reject += 1
+        if row.get("decision") == "reject" and _int(row.get("task_progress_executed")) == 0:
+            no_task_progress_after_reject += 1
+        recovery_attempt_types = {"recovery_attempt", "recovery_only", "retry_executed"}
+        if unsafe and (_int(row.get("fallback_executed")) or attempt_type in recovery_attempt_types):
+            unsafe_after_recovery += 1
+        if (
+            row.get("decision") == "reject"
+            and _int(row.get("hard_contract_fixed_reject"))
+            and risk is not None
+            and threshold is not None
+            and risk < threshold
+        ):
+            hard_contract_caught_casa_missed += 1
+        if row.get("decision") == "reject" and has_label and not unsafe:
+            over_rejection_safe_segments += 1
     stats.update(
         {
             "decision_count": decision_count,
@@ -209,6 +273,24 @@ def _add_decision_counts(
             "unsafe_after_allow": unsafe_after_allow,
             "unsafe_after_reject": unsafe_after_reject,
             "low_risk_unsafe_count": low_risk_unsafe,
+            "allow_then_unsafe_segment": allow_then_unsafe_segment if has_retry_fields else None,
+            "reject_then_recovery_only": reject_then_recovery_only if has_retry_fields else None,
+            "reject_then_recovery_then_retry": (
+                reject_then_recovery_then_retry if has_retry_fields else None
+            ),
+            "reject_then_retry_allowed_but_unsafe": (
+                reject_then_retry_allowed_but_unsafe if has_retry_fields else None
+            ),
+            "reject_then_all_retries_rejected": (
+                reject_then_all_retries_rejected if has_retry_fields else None
+            ),
+            "recovery_only_final_reject": recovery_only_final_reject if has_retry_fields else None,
+            "no_task_progress_after_reject": no_task_progress_after_reject if has_retry_fields else None,
+            "unsafe_after_recovery": unsafe_after_recovery if has_retry_fields else None,
+            "hard_contract_caught_casa_missed": (
+                hard_contract_caught_casa_missed if has_retry_fields else None
+            ),
+            "over_rejection_safe_segments": over_rejection_safe_segments if has_retry_fields else None,
         }
     )
 
@@ -442,6 +524,17 @@ def _group_by_pair(rows: list[dict[str, Any]], a: str, b: str) -> dict[tuple[str
     return output
 
 
+def _missing_retry_fields(rows: list[dict[str, Any]]) -> list[str]:
+    available: set[str] = set()
+    for row in rows:
+        available.update(row)
+    return [field for field in RETRY_DIAGNOSTIC_FIELDS if field not in available]
+
+
+def _has_retry_fields(rows: list[dict[str, Any]]) -> bool:
+    return bool(rows) and not _missing_retry_fields(rows)
+
+
 def _decision_key(row: dict[str, Any]) -> tuple[str, int, int, int]:
     return (
         str(row.get("method", "")),
@@ -475,6 +568,10 @@ def _initial_upright_failed(row: dict[str, Any]) -> bool:
 def _fmt(value: Any) -> str:
     parsed = _float_or_none(value)
     return "n/a" if parsed is None else f"{parsed:.4f}"
+
+
+def _fmt_count(value: Any) -> str:
+    return "n/a" if value is None else str(value)
 
 
 def _float_or_none(value: Any) -> float | None:

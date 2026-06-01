@@ -64,6 +64,20 @@ CASA scripts use the `casa_*.py` prefix.
 | `casa_audit_phase5_acceptance.py` | Audit Phase 5 acceptance criteria |
 | `casa_write_phase5_report.py` | Write the Phase 5 conformal baseline report |
 
+Phase 5 online performance iteration notes:
+
+- `casa_run_phase5_online_main_lowmem.py --performance-preset hard_or_receding_adaptive`
+  runs the PR #8 pilot candidate with `sonic_only`, `hard_contract`, and
+  `casa_a_hard_or_receding_recovery`.
+- `casa_sweep_phase5_online_policy.py --emit-run-commands` writes
+  `phase5_online_policy_sweep_commands.sh` with pilot low-memory run commands
+  and follow-up audit commands.
+- `casa_diagnose_phase5_online_failures.py --casa-method
+  casa_a_hard_or_receding_recovery` reports retry-aware failure categories when
+  the newer gate decision fields are present.
+- Final claims still require a fresh held-out strict run; old 2500-episode
+  no-go artifacts are tuning evidence only.
+
 ## Script Hygiene
 
 - Prefer adding new reusable behavior under `gear_sonic/casa/`.

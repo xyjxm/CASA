@@ -159,10 +159,11 @@ is one-sided per-skill FNR control.
 
 ### Phase 5 Online Audit
 
-The online experiment evaluates the same five methods with real episode
-execution. `casa_run_phase5_online_main_lowmem.py` launches/resumes lane jobs,
-then calls `casa_merge_phase5_online_results.py` with the expected method, seed,
-episode, and skill-count constraints. A representative 2500-episode main run is:
+The online experiment evaluates the original five methods, plus optional
+candidate methods, with real episode execution.
+`casa_run_phase5_online_main_lowmem.py` launches/resumes lane jobs, then calls
+`casa_merge_phase5_online_results.py` with the expected method, seed, episode,
+and skill-count constraints. A representative 2500-episode baseline main run is:
 
 ```bash
 python gear_sonic/scripts/casa_run_phase5_online_main_lowmem.py \
@@ -219,12 +220,20 @@ Issue #5 made the online audit reproducible and explainable. Issue #7 targets
 the actual online performance gap: reaching strict online `GO` on fresh held-out
 2500-episode data without weakening the audit.
 
+PR #8 implements the Issue #7 performance iteration candidate:
+`casa_a_hard_or_receding_recovery`. It combines hard-contract OR CASA rejection,
+long-skill segmentation, per-segment rechecks, adaptive recovery, and a bounded
+recovery-then-retry loop. Retry attempts log recovery and retry decision rows
+with `attempt_type`, `parent_skill_idx`, original candidate parameters,
+recovery counts, retry outcome, task-progress flags, and final segment outcome.
+
 First decompose the current no-go artifact as dev/tuning evidence:
 
 ```bash
 python gear_sonic/scripts/casa_diagnose_phase5_online_failures.py \
   --online-dir outputs/casa/phase5_conformal_baselines_YYYYMMDD/online_real_main_2500/merged \
-  --output-dir outputs/casa/phase5_conformal_baselines_YYYYMMDD/online_real_main_2500/diagnostics
+  --output-dir outputs/casa/phase5_conformal_baselines_YYYYMMDD/online_real_main_2500/diagnostics \
+  --casa-method casa_a_hard_or_receding_recovery
 ```
 
 The diagnostic report writes `phase5_online_failure_breakdown.json` and
@@ -233,7 +242,13 @@ The diagnostic report writes `phase5_online_failure_breakdown.json` and
 task-success over-rejection, low-risk unsafe events that suggest online
 distribution shift, reset/upright hygiene, per-skill risk/threshold margins,
 target buckets, scene complexity, top failure clusters, and recommended next
-interventions.
+interventions. Newer retry-aware artifacts also separate
+`allow_then_unsafe_segment`, `reject_then_recovery_only`,
+`reject_then_recovery_then_retry`, `reject_then_retry_allowed_but_unsafe`,
+`reject_then_all_retries_rejected`, `no_task_progress_after_reject`,
+`unsafe_after_recovery`, `hard_contract_caught_casa_missed`, and
+`over_rejection_safe_segments`; older artifacts report
+`diagnostics.missing_retry_fields` instead of fabricated segment metrics.
 
 Candidate online methods are available in addition to the original five
 baselines:
@@ -244,6 +259,8 @@ baselines:
 - `casa_a_hard_or_recovery`: hard-OR-CASA rejection with adaptive recovery.
 - `casa_a_receding_recovery`: segmented long skills with per-segment rechecks
   and adaptive retry recovery.
+- `casa_a_hard_or_receding_recovery`: hard-OR-CASA rejection with segmented
+  receding rechecks and bounded recovery-then-retry.
 
 Online policy flags include:
 
@@ -255,12 +272,33 @@ Online policy flags include:
 - `--threshold-scale-by-skill walk=0.8,turn=0.9,gesture=0.7,passive=1.0`
 - `--randomize-method-order`
 - `--method-order-seed 20260531`
+- `--performance-preset hard_or_receding_adaptive`
+
+Run a small pilot of the PR #8 candidate with the low-memory preset:
+
+```bash
+python gear_sonic/scripts/casa_run_phase5_online_main_lowmem.py \
+  --phase4-root outputs/casa/phase4_dataset_v1_strict_50k_YYYYMMDD \
+  --phase5-root outputs/casa/phase5_conformal_baselines_YYYYMMDD \
+  --online-root outputs/casa/pilots/pr8_hard_or_receding_adaptive \
+  --performance-preset hard_or_receding_adaptive \
+  --seeds 2001,2002 \
+  --episodes-per-seed 20 \
+  --max-parallel 2 \
+  --chunk-size 10
+```
 
 Plan pilot sweeps before full runs:
 
 ```bash
 python gear_sonic/scripts/casa_sweep_phase5_online_policy.py \
   --output-dir outputs/casa/phase5_online_policy_sweep_YYYYMMDD \
+  --emit-run-commands \
+  --phase4-root outputs/casa/phase4_dataset_v1_strict_50k_YYYYMMDD \
+  --phase5-root outputs/casa/phase5_conformal_baselines_YYYYMMDD \
+  --online-root outputs/casa/pilots/phase5_online_policy_sweep_YYYYMMDD \
+  --seeds 2001,2002 \
+  --episodes-per-seed 20 \
   --fallback-policies adaptive,adaptive_retry \
   --hard-or-casa true \
   --segment-long-skills true \
@@ -268,6 +306,10 @@ python gear_sonic/scripts/casa_sweep_phase5_online_policy.py \
   --threshold-scale-global 0.7,0.8,0.9 \
   --recovery-retry-counts 1,2
 ```
+
+The emitted `phase5_online_policy_sweep_commands.sh` contains one low-memory
+run command per planned candidate, the named PR #8 performance preset command,
+and an audit command for each candidate output.
 
 After pilot runs finish, summarize completed candidate directories:
 
@@ -281,8 +323,30 @@ python gear_sonic/scripts/casa_sweep_phase5_online_policy.py \
 Only pilot candidates with unsafe reduction versus SONIC of at least `0.45`,
 relative task-success drop no more than `0.20`, no catastrophic per-skill
 failure, and clean reset/rollout hygiene should be promoted to a fresh held-out
-2500-episode strict run. The current no-go 2500 artifact is dev/tuning evidence
-only and must not be reused as final success evidence after policy tuning.
+2500-episode strict run. A final held-out command for the promoted PR #8
+candidate should use fresh seeds/data and strict audit thresholds:
+
+```bash
+python gear_sonic/scripts/casa_run_phase5_online_main_lowmem.py \
+  --phase4-root outputs/casa/phase4_dataset_v1_strict_50k_YYYYMMDD \
+  --phase5-root outputs/casa/phase5_conformal_baselines_YYYYMMDD \
+  --online-root outputs/casa/phase5_conformal_baselines_YYYYMMDD/online_real_main_pr8_2500 \
+  --seeds 1234,1235,1236,1237,1238 \
+  --episodes-per-seed 100 \
+  --methods sonic_only,hard_contract,raw_critic_0p5,global_conformal,casa_a_hard_or_receding_recovery \
+  --casa-method casa_a_hard_or_receding_recovery \
+  --fallback-policy auto \
+  --adaptive-retry-count 2 \
+  --segment-long-skills \
+  --recheck-before-segment \
+  --max-segment-duration 0.5 \
+  --threshold-scale-by-skill walk=0.8,turn=0.9,gesture=0.7,passive=1.0 \
+  --randomize-method-order \
+  --method-order-seed 20260531
+```
+
+The current no-go 2500 artifact is dev/tuning evidence only and must not be
+reused as final success evidence after policy tuning.
 
 ## Outputs And Reproducibility
 

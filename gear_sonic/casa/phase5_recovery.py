@@ -105,6 +105,61 @@ def plan_recovery(
     )
 
 
+def rewrite_skill_for_retry(
+    candidate_skill: Any,
+    *,
+    attempt_index: int,
+    max_retry_count: int,
+    fallback_duration: float,
+    scene_props: dict[str, Any] | None = None,
+) -> Any:
+    """Return a safer retry candidate after a recovery execution.
+
+    The rewrite is intentionally monotone with respect to the original command:
+    duration and commanded magnitudes never increase, while absolute target
+    facing for turn skills is preserved.
+    """
+
+    del max_retry_count
+    attempt = max(0, int(attempt_index))
+    scale = max(0.20, 0.70 - 0.15 * attempt)
+    duration = _shortened_duration(candidate_skill, fallback_duration, scale)
+    scene_props = scene_props or {}
+
+    if isinstance(candidate_skill, WalkSkill):
+        vx = _scaled_signed(candidate_skill.vx, scale)
+        vy = _scaled_signed(candidate_skill.vy, scale)
+        if _scene_prefers_backing_away(scene_props):
+            vx = -vx
+            vy = -vy
+        speed = candidate_skill.speed
+        if speed > 0:
+            speed = min(speed, max(0.05, speed * scale))
+        return WalkSkill(
+            vx=vx,
+            vy=vy,
+            facing_yaw_deg=candidate_skill.facing_yaw_deg,
+            duration=duration,
+            speed=speed,
+            height=candidate_skill.height,
+        )
+    if isinstance(candidate_skill, TurnSkill):
+        return TurnSkill(face_yaw_deg=candidate_skill.face_yaw_deg, duration=duration)
+    if isinstance(candidate_skill, GestureSkill):
+        amplitude = min(candidate_skill.amplitude, max(0.01, candidate_skill.amplitude * scale))
+        frequency = min(candidate_skill.frequency, max(0.05, candidate_skill.frequency * scale))
+        side = "left" if candidate_skill.side == "both" else candidate_skill.side
+        return GestureSkill(
+            amplitude=amplitude,
+            frequency=frequency,
+            side=side,
+            duration=duration,
+        )
+    if isinstance(candidate_skill, PassiveSkill):
+        return PassiveSkill(duration=duration, mode="stop")
+    return PassiveSkill(duration=max(0.05, min(float(fallback_duration), 0.25)), mode="stop")
+
+
 def split_skill(skill: Any, *, max_segment_duration: float) -> list[Any]:
     max_duration = float(max_segment_duration)
     if not math.isfinite(max_duration) or max_duration <= 0:
@@ -141,3 +196,18 @@ def split_skill(skill: Any, *, max_segment_duration: float) -> list[Any]:
     if isinstance(skill, PassiveSkill):
         return [PassiveSkill(duration=segment_duration, mode=skill.mode) for _ in range(count)]
     return [skill]
+
+
+def _shortened_duration(skill: Any, fallback_duration: float, scale: float) -> float:
+    original = max(0.05, float(getattr(skill, "duration", fallback_duration)))
+    bounded = min(original, max(0.05, float(fallback_duration)))
+    return max(0.05, min(original, bounded * scale))
+
+
+def _scaled_signed(value: float, scale: float) -> float:
+    return math.copysign(min(abs(value), abs(value) * scale), value)
+
+
+def _scene_prefers_backing_away(scene_props: dict[str, Any]) -> bool:
+    text = " ".join(str(scene_props.get(key, "")).lower() for key in ("target_bucket", "scene_family"))
+    return "collision" in text or "close" in text or "fall" in text

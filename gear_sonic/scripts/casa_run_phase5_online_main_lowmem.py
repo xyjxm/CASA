@@ -50,6 +50,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--episode-start-command-seconds", type=float, default=0.75)
     parser.add_argument("--max-sweeps", type=int, default=6)
     parser.add_argument(
+        "--performance-preset",
+        choices=["baseline", "hard_or_receding_adaptive", "custom"],
+        default="baseline",
+        help="Apply a named online performance policy preset before launching lanes.",
+    )
+    parser.add_argument(
         "--fallback-policy",
         choices=["auto", "stop", "adaptive", "adaptive_retry"],
         default="auto",
@@ -68,9 +74,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     global METHODS, SEEDS
     args = parse_args()
+    apply_performance_preset(args)
     METHODS = [item.strip() for item in args.methods.split(",") if item.strip()]
     SEEDS = [int(item.strip()) for item in args.seeds.split(",") if item.strip()]
     args.online_root.mkdir(parents=True, exist_ok=True)
+    print_effective_policy(args)
     devices = [item.strip() for item in args.cuda_devices.split(",") if item.strip()]
     if not devices:
         raise SystemExit("--cuda-devices must not be empty")
@@ -134,6 +142,44 @@ def main() -> None:
     ]
     print("[lowmem] merging:", " ".join(merge_cmd), flush=True)
     raise SystemExit(subprocess.call(merge_cmd, cwd="."))
+
+
+def apply_performance_preset(args: argparse.Namespace) -> argparse.Namespace:
+    preset = getattr(args, "performance_preset", "custom")
+    if preset in {"baseline", "custom"}:
+        return args
+    if preset != "hard_or_receding_adaptive":
+        raise ValueError(f"Unknown performance preset: {preset}")
+    args.methods = "sonic_only,hard_contract,casa_a_hard_or_receding_recovery"
+    args.casa_method = "casa_a_hard_or_receding_recovery"
+    args.fallback_policy = "auto"
+    args.adaptive_retry_count = 2
+    args.segment_long_skills = True
+    args.recheck_before_segment = True
+    args.max_segment_duration = 0.5
+    args.threshold_scale_by_skill = "walk=0.8,turn=0.9,gesture=0.7,passive=1.0"
+    args.randomize_method_order = True
+    args.method_order_seed = 20260531
+    return args
+
+
+def print_effective_policy(args: argparse.Namespace) -> None:
+    print(
+        "[lowmem] effective_policy "
+        f"performance_preset={getattr(args, 'performance_preset', 'custom')} "
+        f"methods={args.methods} "
+        f"casa_method={args.casa_method} "
+        f"fallback_policy={args.fallback_policy} "
+        f"adaptive_retry_count={args.adaptive_retry_count} "
+        f"segment_long_skills={int(bool(args.segment_long_skills))} "
+        f"recheck_before_segment={int(bool(args.recheck_before_segment))} "
+        f"max_segment_duration={args.max_segment_duration} "
+        f"threshold_scale_global={args.threshold_scale_global} "
+        f"threshold_scale_by_skill={args.threshold_scale_by_skill} "
+        f"randomize_method_order={int(bool(args.randomize_method_order))} "
+        f"method_order_seed={args.method_order_seed}",
+        flush=True,
+    )
 
 
 def build_jobs(args: argparse.Namespace, done: dict[tuple[str, int], set[int]]) -> list[dict[str, Any]]:

@@ -172,6 +172,7 @@ def build_online_audit(
         "confidence_intervals": confidence,
         "per_skill_decisions": decision_summary,
         "per_skill_online_labels": skill_label_summary,
+        "policy_execution": policy_execution_diagnostics(episode_rows, decision_rows),
         "lane_summary_count": len(lane_summaries),
         "raw_episode_row_count": raw_episode_row_count,
         "raw_decision_row_count": raw_decision_row_count,
@@ -533,6 +534,66 @@ def confidence_intervals(method_summary: dict[str, dict[str, Any]]) -> dict[str,
     return output
 
 
+def policy_execution_diagnostics(
+    episode_rows: list[dict[str, Any]],
+    decision_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    labels = _load_skill_labels(episode_rows)
+    rows_with_progress = [row for row in decision_rows if "task_progress_executed" in row]
+    progress_count = sum(_int(row.get("task_progress_executed")) for row in rows_with_progress)
+    reject_rows = [row for row in decision_rows if row.get("decision") == "reject"]
+    retry_executed_rows = [row for row in decision_rows if row.get("attempt_type") == "retry_executed"]
+    retry_labeled = [row for row in retry_executed_rows if _decision_key(row) in labels]
+    retry_unsafe = [
+        row
+        for row in retry_labeled
+        if labels.get(_decision_key(row), {}).get("safe_label") == "unsafe"
+    ]
+    hard_or_rows = [
+        row
+        for row in decision_rows
+        if row.get("reject_reason") == "hard_contract_or_casa_threshold"
+        or (_int(row.get("hard_contract_fixed_reject")) and row.get("decision") == "reject")
+    ]
+    extra_rejects = [
+        row
+        for row in hard_or_rows
+        if _float_or_none(row.get("threshold")) is not None
+        and _float(row.get("raw_critic_risk")) < _float(row.get("threshold"))
+    ]
+    safe_extra_rejects = [
+        row
+        for row in extra_rejects
+        if labels.get(_decision_key(row), {}).get("safe_label") != "unsafe"
+    ]
+    segment_counts = [
+        _int(row.get("segment_count"))
+        for row in decision_rows
+        if _int(row.get("segment_count")) > 0
+    ]
+    return {
+        "task_progress_ratio": progress_count / len(rows_with_progress) if rows_with_progress else None,
+        "recovery_only_segment_rate": (
+            sum(1 for row in decision_rows if row.get("attempt_type") == "recovery_only") / len(reject_rows)
+            if reject_rows
+            else None
+        ),
+        "retry_success_rate": (
+            sum(1 for row in retry_executed_rows if row.get("result_status") == "success")
+            / len(retry_executed_rows)
+            if retry_executed_rows
+            else None
+        ),
+        "retry_unsafe_rate": len(retry_unsafe) / len(retry_labeled) if retry_labeled else None,
+        "hard_or_reject_rate": len(hard_or_rows) / len(decision_rows) if decision_rows else None,
+        "hard_or_extra_rejects": len(extra_rejects),
+        "hard_or_extra_safe_rejects": len(safe_extra_rejects),
+        "receding_segment_count_mean": (
+            sum(segment_counts) / len(segment_counts) if segment_counts else None
+        ),
+    }
+
+
 def online_report_markdown(audit: dict[str, Any]) -> str:
     method_summary = audit.get("method_summary", {})
     lines = [
@@ -782,3 +843,40 @@ def _float(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        output = float(value)
+    except (TypeError, ValueError):
+        return None
+    return output if math.isfinite(output) else None
+
+
+def _decision_key(row: dict[str, Any]) -> tuple[str, int, int, int]:
+    return (
+        str(row.get("method", "")),
+        _int(row.get("seed")),
+        _int(row.get("episode_index")),
+        _int(row.get("skill_idx")),
+    )
+
+
+def _load_skill_labels(episode_rows: list[dict[str, Any]]) -> dict[tuple[str, int, int, int], dict[str, Any]]:
+    labels: dict[tuple[str, int, int, int], dict[str, Any]] = {}
+    for row in episode_rows:
+        summary_path = Path(str(row.get("episode_dir", ""))) / "rollout_summary.json"
+        if not summary_path.exists():
+            continue
+        try:
+            summary = json.loads(summary_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        method = str(row.get("method", ""))
+        seed = _int(row.get("seed"))
+        episode_index = _int(row.get("episode_index"))
+        for label in summary.get("skill_labels", []):
+            skill_idx = _int(label.get("skill_idx"))
+            if skill_idx > 0:
+                labels[(method, seed, episode_index, skill_idx)] = dict(label)
+    return labels
