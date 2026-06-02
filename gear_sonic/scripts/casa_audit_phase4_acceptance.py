@@ -16,6 +16,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-json", type=Path, default=None)
     parser.add_argument("--output-md", type=Path, default=None)
     parser.add_argument("--go-no-go-json", type=Path, default=None)
+    parser.add_argument(
+        "--hc-filtered-calibration-summary",
+        type=Path,
+        help=(
+            "Optional Hard-Contract-filtered calibration build summary or Phase 5 "
+            "calibration audit used to prove the deployment-distribution calibration gate."
+        ),
+    )
+    parser.add_argument(
+        "--require-hc-filtered-calibration",
+        action="store_true",
+        help="Fail strict Phase 4 acceptance unless the HC-filtered calibration overlay is usable.",
+    )
+    parser.add_argument("--min-hc-filtered-unsafe-per-skill", type=int, default=200)
     return parser.parse_args()
 
 
@@ -31,10 +45,19 @@ def main() -> None:
     dataset = _read_json(dataset_dir / "dataset_summary.json")
     split_audit = _read_json(dataset_dir / "split_audit.json")
     critic = _read_json(critic_dir / "metrics.json")
+    hc_filtered_calibration = _load_hc_filtered_calibration(
+        args.hc_filtered_calibration_summary,
+        min_unsafe_per_skill=args.min_hc_filtered_unsafe_per_skill,
+    )
 
     dataset_checks = dataset.get("checks", {})
     critic_checks = critic.get("checks", {})
-    blocking_reasons = _blocking_reasons(dataset_checks, critic_checks)
+    blocking_reasons = _blocking_reasons(
+        dataset_checks,
+        critic_checks,
+        hc_filtered_calibration,
+        require_hc_filtered_calibration=args.require_hc_filtered_calibration,
+    )
     warning_reasons = _warning_reasons(dataset, critic)
     strict_pass = not blocking_reasons
     audit = {
@@ -48,6 +71,8 @@ def main() -> None:
         "split_audit": split_audit,
         "dataset_checks": dataset_checks,
         "raw_critic_checks": critic_checks,
+        "require_hc_filtered_calibration": bool(args.require_hc_filtered_calibration),
+        "hard_contract_filtered_calibration": hc_filtered_calibration,
     }
     go_no_go = _go_no_go(audit)
     output_json.write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n")
@@ -56,7 +81,13 @@ def main() -> None:
     print(json.dumps(audit, indent=2, sort_keys=True))
 
 
-def _blocking_reasons(dataset_checks: dict[str, Any], critic_checks: dict[str, Any]) -> list[str]:
+def _blocking_reasons(
+    dataset_checks: dict[str, Any],
+    critic_checks: dict[str, Any],
+    hc_filtered_calibration: dict[str, Any] | None = None,
+    *,
+    require_hc_filtered_calibration: bool = False,
+) -> list[str]:
     reasons = []
     for name, passed in dataset_checks.items():
         if name == "target_80k_met":
@@ -66,6 +97,13 @@ def _blocking_reasons(dataset_checks: dict[str, Any], critic_checks: dict[str, A
     for name, passed in critic_checks.items():
         if not passed:
             reasons.append(f"raw_critic_{name}_failed")
+    if require_hc_filtered_calibration:
+        if not hc_filtered_calibration:
+            reasons.append("hc_filtered_calibration_missing")
+        else:
+            for name, passed in hc_filtered_calibration.get("checks", {}).items():
+                if not passed:
+                    reasons.append(f"hc_filtered_calibration_{name}_failed")
     return reasons
 
 
@@ -150,6 +188,7 @@ def _go_no_go(audit: dict[str, Any]) -> dict[str, Any]:
             "test_brier": critic.get("test_brier"),
             "raw_vs_hard_unsafe_reduction": critic.get("raw_vs_hard_unsafe_reduction"),
         },
+        "hard_contract_filtered_calibration": audit.get("hard_contract_filtered_calibration"),
     }
 
 
@@ -184,7 +223,124 @@ def _markdown(audit: dict[str, Any]) -> str:
     lines.extend(["", "## Dataset Checks", ""])
     for name, passed in audit["dataset_checks"].items():
         lines.append(f"- {name}: `{'PASS' if passed else 'FAIL'}`")
+    hc_filtered = audit.get("hard_contract_filtered_calibration")
+    if hc_filtered:
+        lines.extend(
+            [
+                "",
+                "## Hard-Contract-filtered Calibration",
+                "",
+                f"- source: `{hc_filtered.get('source_path')}`",
+                f"- calibration_distribution: `{hc_filtered.get('calibration_distribution')}`",
+                f"- calibration_rows: `{hc_filtered.get('calibration_rows')}`",
+                f"- usable_as_main_calibration: `{hc_filtered.get('usable_as_main_calibration')}`",
+                "",
+            ]
+        )
+        for name, passed in hc_filtered.get("checks", {}).items():
+            lines.append(f"- {name}: `{'PASS' if passed else 'FAIL'}`")
+        lines.extend(["", "```json", json.dumps(hc_filtered.get("per_skill"), indent=2, sort_keys=True), "```"])
     return "\n".join(lines)
+
+
+def _load_hc_filtered_calibration(path: Path | None, *, min_unsafe_per_skill: int) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    data = _read_json(path)
+    if "hard_contract_filtered_calibration" in data:
+        return _hc_from_calibration_audit(data, path, min_unsafe_per_skill=min_unsafe_per_skill)
+    return _hc_from_build_summary(data, path, min_unsafe_per_skill=min_unsafe_per_skill)
+
+
+def _hc_from_build_summary(data: dict[str, Any], path: Path, *, min_unsafe_per_skill: int) -> dict[str, Any]:
+    per_skill = data.get("per_skill") or {}
+    checks = data.get("checks") or {}
+    normalized = {
+        skill: {
+            "total": int(stats.get("total", 0) or 0),
+            "safe": int(stats.get("safe", 0) or 0),
+            "unsafe": int(stats.get("unsafe", 0) or 0),
+            "dangerous_ge_min": int(stats.get("unsafe", 0) or 0) >= min_unsafe_per_skill,
+        }
+        for skill, stats in per_skill.items()
+    }
+    return _hc_summary(
+        source_path=path,
+        calibration_distribution=data.get("calibration_distribution"),
+        calibration_rows=int(data.get("calibration_rows", 0) or 0),
+        per_skill=normalized,
+        all_rows_hard_contract_accepted=bool(checks.get("all_calibration_rows_hard_contract_accepted")),
+        min_unsafe_per_skill=min_unsafe_per_skill,
+        extra={
+            "phase": data.get("phase"),
+            "combined_rows": data.get("combined_rows"),
+            "method_filter": data.get("method_filter"),
+            "output_predictions_csv": data.get("output_predictions_csv"),
+        },
+    )
+
+
+def _hc_from_calibration_audit(data: dict[str, Any], path: Path, *, min_unsafe_per_skill: int) -> dict[str, Any]:
+    hc = data.get("hard_contract_filtered_calibration") or {}
+    per_skill = hc.get("by_skill") or {}
+    normalized = {
+        skill: {
+            "total": int(stats.get("total", 0) or 0),
+            "safe": int(stats.get("safe", 0) or 0),
+            "unsafe": int(stats.get("unsafe", 0) or 0),
+            "hard_contract_rejected": int(stats.get("hard_contract_rejected", 0) or 0),
+            "dangerous_ge_min": int(stats.get("unsafe", 0) or 0) >= min_unsafe_per_skill,
+        }
+        for skill, stats in per_skill.items()
+    }
+    return _hc_summary(
+        source_path=path,
+        calibration_distribution=data.get("calibration_distribution"),
+        calibration_rows=int(hc.get("total", 0) or 0),
+        per_skill=normalized,
+        all_rows_hard_contract_accepted=bool(hc.get("all_calibration_rows_hard_contract_accepted")),
+        min_unsafe_per_skill=min_unsafe_per_skill,
+        extra={
+            "phase": data.get("phase"),
+            "usable_as_main_calibration": hc.get("usable_as_main_calibration"),
+            "hard_contract_rejected": hc.get("hard_contract_rejected"),
+        },
+    )
+
+
+def _hc_summary(
+    *,
+    source_path: Path,
+    calibration_distribution: Any,
+    calibration_rows: int,
+    per_skill: dict[str, dict[str, Any]],
+    all_rows_hard_contract_accepted: bool,
+    min_unsafe_per_skill: int,
+    extra: dict[str, Any],
+) -> dict[str, Any]:
+    main_skills = {"walk", "turn", "gesture", "passive"}
+    each_main_skill_present = main_skills.issubset(per_skill)
+    each_skill_unsafe_ge_min = all(
+        int(per_skill.get(skill, {}).get("unsafe", 0) or 0) >= min_unsafe_per_skill for skill in main_skills
+    )
+    calibration_rows_present = calibration_rows > 0
+    checks = {
+        "calibration_rows_present": calibration_rows_present,
+        "all_calibration_rows_hard_contract_accepted": all_rows_hard_contract_accepted,
+        "each_main_skill_present": each_main_skill_present,
+        "each_skill_unsafe_ge_min": each_skill_unsafe_ge_min,
+    }
+    usable = all(checks.values())
+    return {
+        "source_path": str(source_path),
+        "calibration_distribution": calibration_distribution,
+        "calibration_rows": calibration_rows,
+        "min_unsafe_per_skill": min_unsafe_per_skill,
+        "per_skill": per_skill,
+        "checks": checks,
+        "usable_as_main_calibration": usable,
+        **{key: value for key, value in extra.items() if value is not None},
+    }
 
 
 def _read_json(path: Path) -> dict[str, Any]:

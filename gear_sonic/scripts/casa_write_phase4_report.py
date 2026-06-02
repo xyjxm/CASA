@@ -37,6 +37,7 @@ def main() -> None:
 def _markdown(dataset: dict[str, Any], critic: dict[str, Any], audit: dict[str, Any], phase4_root: Path) -> str:
     test = critic.get("overall", {}).get("test", {})
     pareto = critic.get("pareto_summary", {})
+    hc_filtered = audit.get("hard_contract_filtered_calibration")
     lines = [
         "# CASA Phase4 Implementation Report",
         "",
@@ -70,6 +71,28 @@ def _markdown(dataset: dict[str, Any], critic: dict[str, Any], audit: dict[str, 
     ]
     for skill, stats in (dataset.get("per_skill") or {}).items():
         lines.append(f"| {skill} | {stats.get('total')} | {stats.get('unsafe')} | {stats.get('positive_rate'):.4f} |")
+    if hc_filtered:
+        lines.extend(
+            [
+                "",
+                "## Hard-Contract-filtered Calibration Overlay",
+                "",
+                "Phase 4 Dataset v1 keeps the raw train/test/critic-val split intact, and the deployment-distribution calibration overlay supplies the conformal calibration rows required by Plan A.",
+                "",
+                f"- source: `{hc_filtered.get('source_path')}`",
+                f"- calibration_distribution: `{hc_filtered.get('calibration_distribution')}`",
+                f"- calibration_rows: `{hc_filtered.get('calibration_rows')}`",
+                f"- usable_as_main_calibration: `{hc_filtered.get('usable_as_main_calibration')}`",
+                "",
+                "| skill | total | unsafe | hard_contract_rejected | dangerous_ge_min |",
+                "|---|---:|---:|---:|---:|",
+            ]
+        )
+        for skill, stats in (hc_filtered.get("per_skill") or {}).items():
+            lines.append(
+                f"| {skill} | {stats.get('total')} | {stats.get('unsafe')} | "
+                f"{stats.get('hard_contract_rejected', 0)} | {stats.get('dangerous_ge_min')} |"
+            )
     lines.extend(
         [
             "",
