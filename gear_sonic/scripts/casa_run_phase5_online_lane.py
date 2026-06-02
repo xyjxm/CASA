@@ -339,6 +339,14 @@ def wait_for_deploy_ready(deploy_log_path: Path, proc: subprocess.Popen, timeout
             time.sleep(2.0)
             return
         time.sleep(1.0)
+    # The deploy binary writes to a regular file here, so its stdout can be
+    # block-buffered under load.  If it is still alive and has initialized the
+    # state logger, avoid killing an otherwise-ready lane only because the
+    # readiness line has not flushed yet.
+    metadata_path = deploy_log_path.parent.parent / "deploy" / "metadata.json"
+    if proc.poll() is None and metadata_path.exists() and metadata_path.stat().st_size > 0:
+        time.sleep(2.0)
+        return
     raise TimeoutError(f"Timed out waiting for deploy readiness in {deploy_log_path}")
 
 
