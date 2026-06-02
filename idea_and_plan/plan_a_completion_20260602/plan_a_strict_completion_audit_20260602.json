@@ -1,0 +1,490 @@
+{
+  "blocking_reasons": [],
+  "objective": "Plan A complete except Phase2 manual human review",
+  "overall": "PASS",
+  "phases": {
+    "phase0": {
+      "checks": {
+        "20_repeats_each_skill": {
+          "evidence": {
+            "path": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase0_sanity/casa_phase0_headless_20260516_093349/repeat20/repeatability_summary.json",
+            "summary": {
+              "by_skill": {
+                "gesture": {
+                  "failures": 0,
+                  "statuses": {
+                    "success": 20
+                  },
+                  "success_rate": 1.0,
+                  "successes": 20,
+                  "termination_reasons": {
+                    "": 20
+                  },
+                  "total": 20
+                },
+                "passive": {
+                  "failures": 0,
+                  "statuses": {
+                    "success": 20
+                  },
+                  "success_rate": 1.0,
+                  "successes": 20,
+                  "termination_reasons": {
+                    "": 20
+                  },
+                  "total": 20
+                },
+                "turn": {
+                  "failures": 0,
+                  "statuses": {
+                    "success": 20
+                  },
+                  "success_rate": 1.0,
+                  "successes": 20,
+                  "termination_reasons": {
+                    "": 20
+                  },
+                  "total": 20
+                },
+                "walk": {
+                  "failures": 0,
+                  "statuses": {
+                    "success": 20
+                  },
+                  "success_rate": 1.0,
+                  "successes": 20,
+                  "termination_reasons": {
+                    "": 20
+                  },
+                  "total": 20
+                }
+              },
+              "dry_run": false,
+              "first_messages": [
+                {
+                  "delta_heading": null,
+                  "planner": true,
+                  "start": true,
+                  "stop": false,
+                  "topic": "command"
+                },
+                {
+                  "facing": [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "has_upper_body": false,
+                  "height": -1.0,
+                  "mode": 0,
+                  "movement": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "speed": -1.0,
+                  "topic": "planner"
+                },
+                {
+                  "facing": [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "has_upper_body": false,
+                  "height": -1.0,
+                  "mode": 0,
+                  "movement": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "speed": -1.0,
+                  "topic": "planner"
+                },
+                {
+                  "facing": [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "has_upper_body": false,
+                  "height": -1.0,
+                  "mode": 0,
+                  "movement": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "speed": -1.0,
+                  "topic": "planner"
+                },
+                {
+                  "facing": [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "has_upper_body": false,
+                  "height": -1.0,
+                  "mode": 0,
+                  "movement": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "speed": -1.0,
+                  "topic": "planner"
+                }
+              ],
+              "go_criteria_passed": true,
+              "output_dir": "outputs/casa/phase0_sanity/casa_phase0_headless_20260516_093349/repeat20",
+              "overall": {
+                "failures": 0,
+                "statuses": {
+                  "success": 80
+                },
+                "success_rate": 1.0,
+                "successes": 80,
+                "termination_reasons": {
+                  "": 80
+                },
+                "total": 80
+              },
+              "run_id": "casa_phase0_headless_20260516_093349_repeat20",
+              "sent_message_count": 3001,
+              "sim_log_dir": "outputs/casa/phase0_sanity/casa_phase0_headless_20260516_093349/sim_log",
+              "skill_events_csv": "outputs/casa/phase0_sanity/casa_phase0_headless_20260516_093349/repeat20/skill_events.csv",
+              "trials_per_skill": 20
+            }
+          },
+          "reason": "",
+          "status": "PASS"
+        },
+        "30min_stable_real_run": {
+          "evidence": {
+            "path": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase0_sanity/casa_phase0_full30_video_20260516_110120/full30/sanity_summary.json",
+            "summary": {
+              "dry_run": false,
+              "duration_seconds": 1800.0,
+              "evaluation_config": {
+                "gesture_min_rom": 0.05,
+                "middle_trim_fraction": 0.2,
+                "passive_min_ratio": 0.7,
+                "passive_speed_threshold": 0.08,
+                "passive_tail_fraction": 0.5,
+                "turn_yaw_threshold_rad": 0.3,
+                "walk_min_ratio": 0.5,
+                "walk_speed_threshold": 0.1
+              },
+              "executed_skill_count": 423,
+              "go_criteria_passed": true,
+              "output_dir": "outputs/casa/phase0_sanity/casa_phase0_full30_video_20260516_110120/full30",
+              "overall": {
+                "failures": 7,
+                "statuses": {
+                  "failed": 7,
+                  "success": 416
+                },
+                "success_rate": 0.983451536643026,
+                "successes": 416,
+                "termination_reasons": {
+                  "": 416,
+                  "passive_stillness_threshold_not_met": 7
+                },
+                "total": 423
+              },
+              "planned_elapsed_seconds": 1805.511031074915,
+              "run_id": "casa_phase0_full30_video_20260516_110120_full30",
+              "sent_message_count": 14230,
+              "sim_log_dir": "outputs/casa/phase0_sanity/casa_phase0_full30_video_20260516_110120/sim_log",
+              "skill_events_csv": "outputs/casa/phase0_sanity/casa_phase0_full30_video_20260516_110120/full30/skill_events.csv"
+            }
+          },
+          "reason": "",
+          "status": "PASS"
+        }
+      },
+      "overall": "PASS"
+    },
+    "phase1": {
+      "checks": {
+        "calibration_groups": {
+          "evidence": "/tmp/casa_upload_worktree/gear_sonic/casa/skills/calibration_groups.yaml",
+          "reason": "",
+          "status": "PASS"
+        },
+        "four_skill_wrappers": {
+          "evidence": {
+            "GestureSkill": "/tmp/casa_upload_worktree/gear_sonic/casa/skills/gesture.py",
+            "PassiveSkill": "/tmp/casa_upload_worktree/gear_sonic/casa/skills/passive.py",
+            "TurnSkill": "/tmp/casa_upload_worktree/gear_sonic/casa/skills/turn.py",
+            "WalkSkill": "/tmp/casa_upload_worktree/gear_sonic/casa/skills/walk.py"
+          },
+          "reason": "",
+          "status": "PASS"
+        },
+        "skill_log_fields": {
+          "evidence": {
+            "field_mapping": [
+              "skill_name",
+              "params_json",
+              "start_wall_time",
+              "estimated_duration",
+              "status",
+              "termination_reason"
+            ],
+            "path": "/tmp/casa_upload_worktree/gear_sonic/casa/loggers/skill_logger.py"
+          },
+          "reason": "",
+          "status": "PASS"
+        },
+        "skill_registry": {
+          "evidence": "/tmp/casa_upload_worktree/gear_sonic/casa/skills/registry.py",
+          "reason": "",
+          "status": "PASS"
+        }
+      },
+      "overall": "PASS"
+    },
+    "phase2": {
+      "allowed_exception": "Manual independent Phase2 human review is intentionally excluded by the active objective.",
+      "checks": {
+        "phase2_visual_dataset_integrity": {
+          "evidence": {
+            "path": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase2_clean_visual_1000_v2_20260519/dataset_summary_v2.json",
+            "summary": {
+              "available_cross_counts": {
+                "clean_safe/hard": 120,
+                "clean_safe/medium": 267,
+                "clean_safe/simple": 96,
+                "visual_collision_or_close/hard": 132,
+                "visual_collision_or_close/medium": 159,
+                "visual_collision_or_close/simple": 32,
+                "visual_fall/hard": 75,
+                "visual_fall/medium": 136,
+                "visual_fall/simple": 21,
+                "visual_near_boundary/hard": 303,
+                "visual_near_boundary/medium": 319,
+                "visual_near_boundary/simple": 80
+              },
+              "cross_quotas": {
+                "clean_safe/hard": 100,
+                "clean_safe/medium": 220,
+                "clean_safe/simple": 80,
+                "visual_collision_or_close/hard": 120,
+                "visual_collision_or_close/medium": 150,
+                "visual_collision_or_close/simple": 30,
+                "visual_fall/hard": 75,
+                "visual_fall/medium": 60,
+                "visual_fall/simple": 15,
+                "visual_near_boundary/hard": 55,
+                "visual_near_boundary/medium": 70,
+                "visual_near_boundary/simple": 25
+              },
+              "excluded_reason_counts": {
+                "early_event_artifact": 48,
+                "initial_overlap_artifact": 23,
+                "short_video_artifact": 2
+              },
+              "excluded_total": 73,
+              "final_label_counts": {
+                "safe": 400,
+                "unsafe": 600
+              },
+              "final_violation_type_counts": {
+                "collision": 295,
+                "fall": 150,
+                "human_distance_violation": 5,
+                "near_collision": 150,
+                "safe": 400
+              },
+              "integrity_errors": [],
+              "missing_quota": {},
+              "selected_bucket_counts": {
+                "clean_safe": 400,
+                "visual_collision_or_close": 300,
+                "visual_fall": 150,
+                "visual_near_boundary": 150
+              },
+              "selected_complexity_counts": {
+                "hard": 350,
+                "medium": 500,
+                "simple": 150
+              },
+              "selected_cross_counts": {
+                "clean_safe/hard": 100,
+                "clean_safe/medium": 220,
+                "clean_safe/simple": 80,
+                "visual_collision_or_close/hard": 120,
+                "visual_collision_or_close/medium": 150,
+                "visual_collision_or_close/simple": 30,
+                "visual_fall/hard": 75,
+                "visual_fall/medium": 60,
+                "visual_fall/simple": 15,
+                "visual_near_boundary/hard": 55,
+                "visual_near_boundary/medium": 70,
+                "visual_near_boundary/simple": 25
+              },
+              "selected_total": 1000,
+              "target_total": 1000,
+              "visual_evidence_source_counts": {
+                "oracle_contact_sheet_pending_review": 481,
+                "oracle_vlm_safe": 400,
+                "vlm_visual_label_only": 71,
+                "vlm_visual_type": 48
+              }
+            }
+          },
+          "reason": "",
+          "status": "PASS"
+        },
+        "rollout_logger_fields_present": {
+          "evidence": "/tmp/casa_upload_worktree/gear_sonic/casa/oracle/oracle.py",
+          "reason": "",
+          "status": "PASS"
+        },
+        "six_violation_types_implemented": {
+          "evidence": "/tmp/casa_upload_worktree/gear_sonic/casa/oracle/violations.py",
+          "reason": "",
+          "status": "PASS"
+        }
+      },
+      "overall": "PASS_WITH_ALLOWED_EXCEPTION"
+    },
+    "phase3": {
+      "checks": {
+        "phase3_acceptance_audit": {
+          "evidence": {
+            "blocking_reasons": [],
+            "path": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase3_feasibility/phase3_hybrid_phase2v2_manifest_20260521/phase3_acceptance_audit.json"
+          },
+          "reason": "",
+          "status": "PASS"
+        }
+      },
+      "overall": "PASS"
+    },
+    "phase4": {
+      "checks": {
+        "phase4_strict_acceptance": {
+          "evidence": {
+            "path": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase4_dataset_v1_strict_50k_20260522/phase4_acceptance_audit.json",
+            "required_checks": [
+              "total_samples_ge_50k",
+              "per_skill_samples_ge_10k",
+              "per_skill_dangerous_ge_600",
+              "calibration_per_skill_dangerous_ge_200",
+              "split_group_no_leakage",
+              "label_missing_rate_le_0p02",
+              "critical_field_missing_rate_le_0p02",
+              "unsafe_positive_rate_in_10_50pct"
+            ]
+          },
+          "reason": "",
+          "status": "PASS"
+        }
+      },
+      "overall": "PASS"
+    },
+    "phase5_offline": {
+      "checks": {
+        "hc_filtered_calibration": {
+          "evidence": {
+            "path": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase5_conformal_baselines_20260522/hc_filtered_online_calibration_20260601/calibration_audit.json"
+          },
+          "reason": "",
+          "status": "PASS"
+        },
+        "offline_phase5_acceptance": {
+          "evidence": {
+            "path": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase5_conformal_baselines_20260522/hc_filtered_online_calibration_20260601/phase5_acceptance_audit.json",
+            "summary": {
+              "blocking_reasons": [],
+              "go": true,
+              "status": "PASS_STRICT"
+            }
+          },
+          "reason": "",
+          "status": "PASS"
+        },
+        "visual_and_demo_artifacts": {
+          "evidence": {
+            "artifact_count": 13,
+            "manifest": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase5_conformal_baselines_20260522/hc_filtered_online_calibration_20260601/artifacts/phase5_artifact_manifest.json"
+          },
+          "reason": "",
+          "status": "PASS"
+        }
+      },
+      "overall": "PASS"
+    },
+    "phase5_online": {
+      "checks": {
+        "online_acceptance_audit": {
+          "evidence": {
+            "path": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase5_conformal_baselines_20260522/online_real_main_hc_threshold_2500_20260602/merged/online_acceptance_audit.json",
+            "summary": {
+              "blocking_reasons": [],
+              "go": true,
+              "status": "PASS_STRICT_ONLINE"
+            }
+          },
+          "reason": "",
+          "status": "PASS"
+        },
+        "online_expected_episodes": {
+          "evidence": {
+            "by_method_seed": {
+              "casa_a_per_skill": {
+                "1234": 100,
+                "1235": 100,
+                "1236": 100,
+                "1237": 100,
+                "1238": 100
+              },
+              "global_conformal": {
+                "1234": 100,
+                "1235": 100,
+                "1236": 100,
+                "1237": 100,
+                "1238": 100
+              },
+              "hard_contract": {
+                "1234": 100,
+                "1235": 100,
+                "1236": 100,
+                "1237": 100,
+                "1238": 100
+              },
+              "raw_critic_0p5": {
+                "1234": 100,
+                "1235": 100,
+                "1236": 100,
+                "1237": 100,
+                "1238": 100
+              },
+              "sonic_only": {
+                "1234": 100,
+                "1235": 100,
+                "1236": 100,
+                "1237": 100,
+                "1238": 100
+              }
+            },
+            "completed_unique": 2500,
+            "expected": 2500,
+            "rows": 3173,
+            "statuses": {
+              "completed": 2500,
+              "initial_upright_failed": 673
+            }
+          },
+          "reason": "",
+          "status": "PASS"
+        }
+      },
+      "overall": "PASS"
+    }
+  }
+}

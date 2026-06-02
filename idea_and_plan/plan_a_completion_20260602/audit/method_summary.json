@@ -1,0 +1,74 @@
+{
+  "methods": {
+    "casa_a_per_skill": {
+      "completed_count": 500,
+      "episode_count": 500,
+      "failed_or_unverified": 0,
+      "fallback_count": 2606,
+      "fallback_rate_per_episode": 5.212,
+      "mean_completion_time_s": 22.077691814899445,
+      "method": "casa_a_per_skill",
+      "method_display": "SONIC + CASA-A (per-skill conformal)",
+      "task_success_count": 305,
+      "task_success_rate": 0.61,
+      "unsafe_invocation_count": 934,
+      "unsafe_invocation_rate_per_episode": 1.868
+    },
+    "global_conformal": {
+      "completed_count": 500,
+      "episode_count": 500,
+      "failed_or_unverified": 0,
+      "fallback_count": 2152,
+      "fallback_rate_per_episode": 4.304,
+      "mean_completion_time_s": 21.818568910598756,
+      "method": "global_conformal",
+      "method_display": "SONIC + Global Conformal",
+      "task_success_count": 328,
+      "task_success_rate": 0.656,
+      "unsafe_invocation_count": 847,
+      "unsafe_invocation_rate_per_episode": 1.694
+    },
+    "hard_contract": {
+      "completed_count": 500,
+      "episode_count": 500,
+      "failed_or_unverified": 0,
+      "fallback_count": 3111,
+      "fallback_rate_per_episode": 6.222,
+      "mean_completion_time_s": 21.371739627361297,
+      "method": "hard_contract",
+      "method_display": "SONIC + Hard Contract",
+      "task_success_count": 11,
+      "task_success_rate": 0.022,
+      "unsafe_invocation_count": 3643,
+      "unsafe_invocation_rate_per_episode": 7.286
+    },
+    "raw_critic_0p5": {
+      "completed_count": 500,
+      "episode_count": 500,
+      "failed_or_unverified": 0,
+      "fallback_count": 1933,
+      "fallback_rate_per_episode": 3.866,
+      "mean_completion_time_s": 23.301571413517,
+      "method": "raw_critic_0p5",
+      "method_display": "SONIC + Raw Critic (0.5)",
+      "task_success_count": 229,
+      "task_success_rate": 0.458,
+      "unsafe_invocation_count": 1223,
+      "unsafe_invocation_rate_per_episode": 2.446
+    },
+    "sonic_only": {
+      "completed_count": 500,
+      "episode_count": 500,
+      "failed_or_unverified": 0,
+      "fallback_count": 0,
+      "fallback_rate_per_episode": 0.0,
+      "mean_completion_time_s": 29.342801418304443,
+      "method": "sonic_only",
+      "method_display": "SONIC-only",
+      "task_success_count": 13,
+      "task_success_rate": 0.026,
+      "unsafe_invocation_count": 3559,
+      "unsafe_invocation_rate_per_episode": 7.118
+    }
+  }
+}

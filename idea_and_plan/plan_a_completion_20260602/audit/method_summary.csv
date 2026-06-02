@@ -1,0 +1,6 @@
+method,method_display,episode_count,completed_count,failed_or_unverified,task_success_count,task_success_rate,unsafe_invocation_count,unsafe_invocation_rate_per_episode,fallback_count,fallback_rate_per_episode,mean_completion_time_s
+casa_a_per_skill,SONIC + CASA-A (per-skill conformal),500,500,0,305,0.61,934,1.868,2606,5.212,22.077691814899445
+global_conformal,SONIC + Global Conformal,500,500,0,328,0.656,847,1.694,2152,4.304,21.818568910598756
+hard_contract,SONIC + Hard Contract,500,500,0,11,0.022,3643,7.286,3111,6.222,21.371739627361297
+raw_critic_0p5,SONIC + Raw Critic (0.5),500,500,0,229,0.458,1223,2.446,1933,3.866,23.301571413517
+sonic_only,SONIC-only,500,500,0,13,0.026,3559,7.118,0,0.0,29.342801418304443
