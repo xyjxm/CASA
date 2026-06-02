@@ -53,7 +53,9 @@ CASA scripts use the `casa_*.py` prefix.
 | Script | Purpose |
 |---|---|
 | `casa_calibrate_phase5_conformal.py` | Calibrate global and per-skill conformal thresholds on the untouched calibration split |
+| `casa_build_hc_filtered_online_calibration.py` | Build Hard-Contract-filtered online calibration rows for strict deployment-distribution conformal calibration |
 | `casa_eval_phase5_baselines.py` | Evaluate the five baseline gates on the Phase 4 test split |
+| `casa_make_phase5_artifacts.py` | Generate Phase 5 reliability, rejection-risk, FNR, counterfactual, failure, and trajectory video artifacts |
 | `casa_run_phase5_online_experiment.py` | Run Phase 5 online baseline or candidate policy episodes |
 | `casa_run_phase5_online_lane.py` | Launch one online experiment lane |
 | `casa_run_phase5_online_main_lowmem.py` | Run/resume the low-concurrency online main experiment |

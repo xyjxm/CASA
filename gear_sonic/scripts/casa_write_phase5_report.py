@@ -49,8 +49,9 @@ def _markdown(
         "## Summary",
         "",
         "Phase 5 calibrates global and per-skill conformal gates on the "
-        "untouched Phase 4 calibration split, independent from raw-critic "
-        "model selection, then evaluates the five Version A baselines on the "
+        f"`{calibration.get('calibration_distribution', 'calibration')}` "
+        "calibration distribution, independent from raw-critic model selection, "
+        "then evaluates the five Version A baselines on the "
         f"Phase 4 test split. Current status is `{audit.get('status')}`.",
         "",
         "## Artifacts",
@@ -111,7 +112,7 @@ def _markdown(
             "",
             "## Calibration Note",
             "",
-            "The main conformal calibration uses the untouched Phase 4 calibration split, independent from the raw-critic validation split. The hard-contract-filtered subset is reported only as a diagnostic unless a matched safe-rejection-budget comparison is configured.",
+            _calibration_note(calibration),
         ]
     )
     smoke_summary = phase5_root / "online_smoke_dry_run" / "method_summary.json"
@@ -126,6 +127,15 @@ def _markdown(
                 f"- dry_run_episode_results: `{phase5_root / 'online_smoke_dry_run' / 'online_episode_results.csv'}`",
             ]
         )
+    artifact_manifest = phase5_root / "artifacts" / "phase5_artifact_manifest.json"
+    if artifact_manifest.exists():
+        artifacts = read_json(artifact_manifest)
+        lines.extend(["", "## Visual Artifacts", ""])
+        for item in artifacts.get("artifacts", []):
+            lines.append(
+                f"- {item.get('name')}: `{item.get('path')}` "
+                f"(source: `{item.get('source')}`)"
+            )
     return "\n".join(lines)
 
 
@@ -136,6 +146,21 @@ def _fmt(value: Any) -> str:
         return f"{float(value):.4f}"
     except (TypeError, ValueError):
         return str(value)
+
+
+def _calibration_note(calibration: dict[str, Any]) -> str:
+    if calibration.get("require_hard_contract_filtered_calibration"):
+        hc = calibration.get("hard_contract_filtered_calibration", {})
+        return (
+            "The main conformal calibration uses only Hard-Contract-accepted rows "
+            f"(`hard_contract_rejected={hc.get('hard_contract_rejected')}`) and "
+            "therefore matches the Plan A Hard-Contract-filtered calibration requirement."
+        )
+    return (
+        "The main conformal calibration uses the untouched Phase 4 calibration split, "
+        "independent from the raw-critic validation split. The hard-contract-filtered "
+        "subset is reported only as a diagnostic unless explicitly required."
+    )
 
 
 if __name__ == "__main__":

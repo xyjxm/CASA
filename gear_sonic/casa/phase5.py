@@ -480,6 +480,7 @@ def calibration_table_rows(
     thresholds: dict[str, Any],
     *,
     alpha: float,
+    calibration_distribution: str = "untouched_phase4_conformal_calibration_split",
 ) -> list[dict[str, Any]]:
     calibration = [row for row in rows if split_role(row.get("phase4_split")) == "calibration"]
     output: list[dict[str, Any]] = []
@@ -493,7 +494,7 @@ def calibration_table_rows(
             {
                 "alpha": alpha,
                 "threshold": float(thresholds["per_skill"][skill]),
-                "calibration_distribution": "untouched_phase4_conformal_calibration_split",
+                "calibration_distribution": calibration_distribution,
             }
         )
         output.append(metrics)
@@ -505,7 +506,7 @@ def calibration_table_rows(
         {
             "alpha": alpha,
             "threshold": float(thresholds["global"]),
-            "calibration_distribution": "untouched_phase4_conformal_calibration_split",
+            "calibration_distribution": calibration_distribution,
         }
     )
     output.append(metrics)

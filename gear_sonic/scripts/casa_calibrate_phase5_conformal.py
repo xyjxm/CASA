@@ -40,6 +40,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fnr-margin", type=float, default=0.0)
     parser.add_argument("--max-safe-reject-rate", type=float, default=0.10)
     parser.add_argument("--min-unsafe-calibration-per-skill", type=int, default=200)
+    parser.add_argument(
+        "--calibration-distribution",
+        default="untouched_phase4_conformal_calibration_split",
+        help="Human-readable calibration source recorded into Phase 5 artifacts.",
+    )
+    parser.add_argument(
+        "--require-hard-contract-filtered-calibration",
+        action="store_true",
+        help="Require every calibration row to have hard_contract_fixed_reject=0.",
+    )
     return parser.parse_args()
 
 
@@ -64,8 +74,14 @@ def main() -> None:
         )
     else:
         thresholds = _conservative_thresholds(rows, max_thresholds)
-    table = calibration_table_rows(rows, thresholds, alpha=args.alpha)
+    table = calibration_table_rows(
+        rows,
+        thresholds,
+        alpha=args.alpha,
+        calibration_distribution=args.calibration_distribution,
+    )
     diagnostics = _hard_contract_subset_diagnostics(rows)
+    hc_calibration = _hard_contract_calibration_summary(rows)
     checks = {
         "thresholds_include_global": "global" in thresholds,
         "thresholds_include_all_skills": all(skill in thresholds["per_skill"] for skill in MAIN_SKILLS),
@@ -83,13 +99,18 @@ def main() -> None:
                 if row["skill_name"] in MAIN_SKILLS
             )
         ),
+        "calibration_hard_contract_filtered": (
+            (not args.require_hard_contract_filtered_calibration)
+            or hc_calibration["all_calibration_rows_hard_contract_accepted"]
+        ),
     }
     output = {
         "phase": "CASA Phase5 conformal calibration",
         "phase4_root": str(args.phase4_root),
         "predictions_csv": str(predictions_csv),
         "alpha": args.alpha,
-        "calibration_distribution": "untouched_phase4_conformal_calibration_split",
+        "calibration_distribution": args.calibration_distribution,
+        "require_hard_contract_filtered_calibration": args.require_hard_contract_filtered_calibration,
         "selection_mode": args.selection_mode,
         "fnr_margin": args.fnr_margin,
         "max_safe_reject_rate": args.max_safe_reject_rate,
@@ -113,10 +134,19 @@ def main() -> None:
         },
         "global_calibration": next(row for row in table if row["skill_name"] == "all"),
         "hard_contract_filtered_calibration_diagnostic": diagnostics,
+        "hard_contract_filtered_calibration": hc_calibration,
         "notes": [
-            "Hard Contract is retained as a Phase 5 baseline, not as the conformal calibration filter.",
-            "The hard_contract_fixed_reject==0 calibration subset is reported only as a diagnostic.",
-            "Raw critic model selection must use critic_val/val; this calibration step uses only the untouched calibration role.",
+            (
+                "This calibration run requires the calibration split to be Hard-Contract accepted."
+                if args.require_hard_contract_filtered_calibration
+                else "Hard Contract is retained as a Phase 5 baseline, not as the conformal calibration filter."
+            ),
+            (
+                "The hard_contract_fixed_reject==0 calibration subset is the main calibration source."
+                if args.require_hard_contract_filtered_calibration
+                else "The hard_contract_fixed_reject==0 calibration subset is reported only as a diagnostic."
+            ),
+            "Raw critic model selection must use critic_val/val; this calibration step uses only rows marked calibration.",
             "max_fnr mode is the main Phase 5 setting: it uses the largest threshold that satisfies alpha FNR control.",
         ],
     }
@@ -145,6 +175,33 @@ def _hard_contract_subset_diagnostics(rows: list[dict]) -> dict:
         "unsafe": sum(1 for row in accepted if int(row.get("label_int", 0)) == 1),
         "by_skill": by_skill,
         "usable_as_main_calibration": all(stats["dangerous_ge_200"] for stats in by_skill.values()),
+    }
+
+
+def _hard_contract_calibration_summary(rows: list[dict]) -> dict:
+    calibration = [row for row in rows if split_role(row.get("phase4_split")) == "calibration"]
+    rejected = [row for row in calibration if bool(row.get("hard_contract_fixed_reject_bool"))]
+    by_skill = {}
+    for skill in MAIN_SKILLS:
+        skill_rows = [row for row in calibration if row.get("skill_name") == skill]
+        unsafe = sum(1 for row in skill_rows if int(row.get("label_int", 0)) == 1)
+        rejected_skill_rows = [row for row in skill_rows if bool(row.get("hard_contract_fixed_reject_bool"))]
+        by_skill[skill] = {
+            "total": len(skill_rows),
+            "unsafe": unsafe,
+            "safe": len(skill_rows) - unsafe,
+            "hard_contract_rejected": len(rejected_skill_rows),
+            "dangerous_ge_200": unsafe >= 200,
+        }
+    return {
+        "total": len(calibration),
+        "unsafe": sum(1 for row in calibration if int(row.get("label_int", 0)) == 1),
+        "hard_contract_rejected": len(rejected),
+        "all_calibration_rows_hard_contract_accepted": len(rejected) == 0,
+        "by_skill": by_skill,
+        "usable_as_main_calibration": all(
+            stats["dangerous_ge_200"] and stats["hard_contract_rejected"] == 0 for stats in by_skill.values()
+        ),
     }
 
 

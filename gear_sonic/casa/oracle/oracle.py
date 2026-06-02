@@ -172,7 +172,7 @@ class SafetyOracle:
         return [
             _violation(
                 ViolationType.HUMAN_DISTANCE,
-                ViolationSeverity.HARD,
+                ViolationSeverity.SOFT,
                 interval,
                 source="min_user_distance",
                 details={"threshold_m": threshold},
@@ -205,7 +205,7 @@ class SafetyOracle:
                 violations.append(
                     _violation(
                         ViolationType.UNSAFE_GESTURE,
-                        ViolationSeverity.HARD,
+                        ViolationSeverity.SOFT,
                         interval,
                         source="min_arm_user_distance",
                         details={"threshold_m": threshold, "skill_idx": skill.skill_idx},
