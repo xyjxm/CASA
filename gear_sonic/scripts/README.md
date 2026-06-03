@@ -61,6 +61,7 @@ CASA scripts use the `casa_*.py` prefix.
 | `casa_run_phase5_online_main_lowmem.py` | Run/resume the low-concurrency online main experiment |
 | `casa_merge_phase5_online_results.py` | Merge Phase 5 online lane outputs and write online GO/NO-GO audit artifacts |
 | `casa_audit_phase5_online.py` | Audit an existing merged Phase 5 online directory without rerunning episodes |
+| `casa_visualize_phase5_online.py` | Generate five-baseline charts, heatmaps, selected episode timelines, metric timeline animations, and visualization reports from online audit artifacts |
 | `casa_diagnose_phase5_online_failures.py` | Decompose an online no-go artifact into gate, recovery, skill, and hygiene failures |
 | `casa_sweep_phase5_online_policy.py` | Plan or summarize Phase 5 online policy pilot sweeps |
 | `casa_audit_phase5_acceptance.py` | Audit Phase 5 acceptance criteria |
@@ -79,6 +80,12 @@ Phase 5 online performance iteration notes:
   `--min-raw-unsafe-reduction`, `--max-fallback-rate-per-episode`,
   `--max-reject-rate`, and `--max-walk-reject-rate`. The defaults are intended
   for claim validation, not for weakening the default online audit.
+- `casa_visualize_phase5_online.py --strict-five-baseline --video-mode
+  timeline-only` builds the Phase 5 online visualization evidence package from
+  committed audit artifacts. It writes a metric consistency check before
+  plotting and labels generated animations as metric timelines, not simulator
+  recordings. Static plots require `matplotlib`; MP4 animations use `ffmpeg`
+  when available and fall back to PNG frame sequences otherwise.
 - `casa_run_phase5_online_main_lowmem.py --performance-preset hard_or_receding_adaptive`
   runs the PR #8 pilot candidate with `sonic_only`, `hard_contract`, and
   `casa_a_hard_or_receding_recovery`.

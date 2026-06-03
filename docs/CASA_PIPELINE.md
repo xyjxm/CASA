@@ -265,6 +265,60 @@ reject budgets. That distinction is intentional. Do not describe the archived
 evidence as supporting the strongest original Plan A claim unless the
 `--strict-plan-a-claim` audit becomes GO on fresh or promoted evidence.
 
+### Phase 5 Visualization Evidence
+
+Use `casa_visualize_phase5_online.py` to turn the five-baseline online audit
+artifacts into reviewer-readable figures, heatmaps, representative episode
+timelines, and metric timeline animations. The visualization package recomputes
+the plotted metrics from `online_episode_results.csv` and `gate_decisions.csv`,
+checks them against `method_summary.json` and `online_acceptance_audit.json`,
+and writes `data/metric_consistency_check.json` before plotting. It does not
+change audit metrics or strict Plan A claim status. Static figures require
+`matplotlib`; MP4 metric timeline animations use `ffmpeg` when available and
+fall back to PNG frame sequences otherwise.
+
+Generate static figures plus metric timeline animations from the committed Plan
+A completion evidence:
+
+```bash
+python gear_sonic/scripts/casa_visualize_phase5_online.py \
+  --artifact-dir idea_and_plan/plan_a_completion_20260602 \
+  --audit-dir idea_and_plan/plan_a_completion_20260602/audit \
+  --output-dir outputs/casa/phase5_online_visualizations \
+  --methods sonic_only,hard_contract,raw_critic_0p5,global_conformal,casa_a_per_skill \
+  --casa-method casa_a_per_skill \
+  --strict-five-baseline \
+  --video-mode timeline-only \
+  --write-markdown \
+  --write-html \
+  --fail-on-metric-mismatch
+```
+
+If real simulator recordings already exist, point the visualizer at them. When
+matching videos are unavailable, it writes only metric timeline animations and
+labels them as not simulator recordings:
+
+```bash
+python gear_sonic/scripts/casa_visualize_phase5_online.py \
+  --artifact-dir idea_and_plan/plan_a_completion_20260602 \
+  --audit-dir idea_and_plan/plan_a_completion_20260602/audit \
+  --output-dir outputs/casa/phase5_online_visualizations_real_video \
+  --methods sonic_only,hard_contract,raw_critic_0p5,global_conformal,casa_a_per_skill \
+  --casa-method casa_a_per_skill \
+  --strict-five-baseline \
+  --video-mode real \
+  --videos-dir outputs/casa/phase5_online_recordings \
+  --write-markdown \
+  --write-html \
+  --fail-on-metric-mismatch
+```
+
+The visualizer writes `phase5_online_visualization_report.md`, optional static
+HTML, `figures/`, `videos/`, and `data/` outputs under the requested
+`--output-dir`. Raw simulator videos are never fabricated; without real video
+inputs, the video evidence is a metric timeline animation derived from audit
+CSV/JSON rows.
+
 ### Phase 5 Online Performance Iteration
 
 Issue #5 made the online audit reproducible and explainable. Issue #7 targets

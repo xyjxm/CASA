@@ -82,6 +82,31 @@ Key default acceptance metrics from `audit/online_acceptance_audit.json`:
 - `audit/online_episode_results.csv.sha256`: merged episode CSV sha256.
 - `audit/gate_decisions.csv.sha256`: merged gate-decision CSV sha256.
 
+## Visualization Evidence
+
+Generate reviewer-readable five-baseline figures, heatmaps, selected episode
+timelines, and metric timeline animations from this evidence directory:
+
+```bash
+python gear_sonic/scripts/casa_visualize_phase5_online.py \
+  --artifact-dir idea_and_plan/plan_a_completion_20260602 \
+  --audit-dir idea_and_plan/plan_a_completion_20260602/audit \
+  --output-dir outputs/casa/phase5_online_visualizations \
+  --methods sonic_only,hard_contract,raw_critic_0p5,global_conformal,casa_a_per_skill \
+  --casa-method casa_a_per_skill \
+  --strict-five-baseline \
+  --video-mode timeline-only \
+  --write-markdown \
+  --write-html \
+  --fail-on-metric-mismatch
+```
+
+The output report explains metric provenance, verifies available hashes, maps
+figures back to `method_summary.json` and `online_acceptance_audit.json`, and
+states that metric timeline animations are not simulator recordings. The
+visualization package does not change the default audit PASS or the strict
+claim `STRICT_PLAN_A_NO_GO` result.
+
 ## Archived Artifacts
 
 - `plan_a_strict_completion_audit_20260602.json`: strict Plan A phase audit.
