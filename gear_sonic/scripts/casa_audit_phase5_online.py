@@ -32,6 +32,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--episodes-per-seed", type=int)
     parser.add_argument("--skills-per-episode", type=int, default=8)
     parser.add_argument("--casa-method", default="casa_a_per_skill")
+    parser.add_argument("--strict-plan-a-claim", action="store_true")
+    parser.add_argument("--min-global-unsafe-reduction", type=float, default=0.10)
+    parser.add_argument("--min-global-task-progress-advantage", type=float, default=0.10)
+    parser.add_argument("--min-raw-unsafe-reduction", type=float, default=0.10)
+    parser.add_argument("--max-fallback-rate-per-episode", type=float, default=2.0)
+    parser.add_argument("--max-reject-rate", type=float, default=0.50)
+    parser.add_argument("--max-walk-reject-rate", type=float, default=0.75)
     parser.add_argument("--strict", action="store_true")
     return parser.parse_args()
 
@@ -53,8 +60,15 @@ def main() -> None:
         episodes_per_seed=args.episodes_per_seed,
         skills_per_episode=args.skills_per_episode,
         casa_method=args.casa_method,
+        strict_plan_a_claim=args.strict_plan_a_claim,
+        min_global_unsafe_reduction=args.min_global_unsafe_reduction,
+        min_global_task_progress_advantage=args.min_global_task_progress_advantage,
+        min_raw_unsafe_reduction=args.min_raw_unsafe_reduction,
+        max_fallback_rate_per_episode=args.max_fallback_rate_per_episode,
+        max_reject_rate=args.max_reject_rate,
+        max_walk_reject_rate=args.max_walk_reject_rate,
     )
-    method_summary = method_summary_rows(episode_rows)
+    method_summary = method_summary_rows(episode_rows, decision_rows)
     write_csv_rows(output_dir / "method_summary.csv", method_summary)
     (output_dir / "method_summary.json").write_text(
         json.dumps({"methods": {row["method"]: row for row in method_summary}}, indent=2, sort_keys=True) + "\n"

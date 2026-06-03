@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import Any
 
 from gear_sonic.casa.phase5 import MAIN_SKILLS, METHOD_ORDER, relative_reduction
-from gear_sonic.casa.phase5_policy import ONLINE_METHOD_ORDER, method_display
+from gear_sonic.casa.phase5_policy import (
+    ONLINE_CANDIDATE_METHODS,
+    ONLINE_METHOD_ORDER,
+    method_display,
+)
 
 REQUIRED_EPISODE_FIELDS = (
     "method",
@@ -44,6 +48,9 @@ REQUIRED_DECISION_FIELDS = (
 STATUS_VALUES = {"completed", "failed", "unverified", "initial_upright_failed"}
 DECISION_VALUES = {"allow", "reject"}
 RESULT_STATUS_VALUES = {"success", "failed", "unverified", ""}
+ORIGINAL_PLAN_A_METHODS = tuple(METHOD_ORDER)
+ORIGINAL_PLAN_A_CASA_METHOD = "casa_a_per_skill"
+CORE_TASK_PROGRESS_SKILLS = {"walk", "turn", "gesture"}
 
 
 class OnlineValidationError(ValueError):
@@ -68,12 +75,15 @@ def write_csv_rows(path: Path, rows: list[dict[str, Any]]) -> None:
             if key not in fieldnames:
                 fieldnames.append(key)
     with path.open("w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer = csv.DictWriter(file, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
 
-def method_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def method_summary_rows(
+    rows: list[dict[str, Any]],
+    decision_rows: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     methods = sorted({str(row.get("method", "")) for row in rows if row.get("method")})
     output = []
     for method in methods:
@@ -94,6 +104,8 @@ def method_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "failed_or_unverified": count - completed,
                 "task_success_count": task_success,
                 "task_success_rate": task_success / count,
+                "safe_completion_count": task_success,
+                "safe_completion_rate": task_success / count,
                 "unsafe_invocation_count": unsafe,
                 "unsafe_invocation_rate_per_episode": unsafe / count,
                 "fallback_count": fallback,
@@ -102,6 +114,8 @@ def method_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 / count,
             }
         )
+    if decision_rows is not None:
+        _augment_method_summary_with_task_progress(output, decision_rows)
     return output
 
 
@@ -124,6 +138,13 @@ def build_online_audit(
     min_hard_unsafe_reduction: float = 0.20,
     max_task_success_drop_abs: float = 0.10,
     max_task_success_drop_rel: float = 0.30,
+    strict_plan_a_claim: bool = False,
+    min_global_unsafe_reduction: float = 0.10,
+    min_global_task_progress_advantage: float = 0.10,
+    min_raw_unsafe_reduction: float = 0.10,
+    max_fallback_rate_per_episode: float = 2.0,
+    max_reject_rate: float = 0.50,
+    max_walk_reject_rate: float = 0.75,
 ) -> dict[str, Any]:
     expected_methods = expected_methods or list(METHOD_ORDER)
     lane_summaries = lane_summaries or []
@@ -135,7 +156,7 @@ def build_online_audit(
         episodes_per_seed=episodes_per_seed,
         skills_per_episode=skills_per_episode,
     )
-    method_rows = method_summary_rows(episode_rows)
+    method_rows = method_summary_rows(episode_rows, decision_rows)
     method_summary = {row["method"]: row for row in method_rows}
     decision_summary = decision_summary_by_method_and_skill(decision_rows)
     skill_label_summary = skill_label_summary_from_rollouts(episode_rows)
@@ -145,6 +166,33 @@ def build_online_audit(
         casa_method=casa_method,
         sonic_method=sonic_method,
         hard_method=hard_method,
+    )
+    fallback_budget = fallback_reject_budget_audit(
+        episode_rows,
+        decision_rows,
+        method_summary=method_summary,
+        decision_summary=decision_summary,
+        casa_method=casa_method,
+        max_fallback_rate_per_episode=max_fallback_rate_per_episode,
+        max_reject_rate=max_reject_rate,
+        max_walk_reject_rate=max_walk_reject_rate,
+    )
+    matched_budget = matched_budget_comparison(
+        method_summary,
+        casa_method=casa_method,
+        baseline_method="global_conformal",
+    )
+    strict_claim = strict_plan_a_claim_audit(
+        method_summary=method_summary,
+        comparisons=comparisons,
+        fallback_budget=fallback_budget,
+        matched_budget=matched_budget,
+        expected_methods=expected_methods,
+        casa_method=casa_method,
+        min_global_unsafe_reduction=min_global_unsafe_reduction,
+        min_global_task_progress_advantage=min_global_task_progress_advantage,
+        min_raw_unsafe_reduction=min_raw_unsafe_reduction,
+        min_hard_unsafe_reduction=min_hard_unsafe_reduction,
     )
     checks = online_checks(
         episode_rows=episode_rows,
@@ -170,9 +218,12 @@ def build_online_audit(
         "artifact_validation": validation,
         "baseline_comparisons": comparisons,
         "confidence_intervals": confidence,
+        "fallback_reject_budget": fallback_budget,
+        "matched_budget_comparison": matched_budget,
         "per_skill_decisions": decision_summary,
         "per_skill_online_labels": skill_label_summary,
         "policy_execution": policy_execution_diagnostics(episode_rows, decision_rows),
+        "strict_plan_a_claim": strict_claim,
         "lane_summary_count": len(lane_summaries),
         "raw_episode_row_count": raw_episode_row_count,
         "raw_decision_row_count": raw_decision_row_count,
@@ -188,16 +239,30 @@ def build_online_audit(
             "min_hard_unsafe_reduction": min_hard_unsafe_reduction,
             "max_task_success_drop_abs": max_task_success_drop_abs,
             "max_task_success_drop_rel": max_task_success_drop_rel,
+            "strict_plan_a_claim": strict_plan_a_claim,
+            "min_global_unsafe_reduction": min_global_unsafe_reduction,
+            "min_global_task_progress_advantage": min_global_task_progress_advantage,
+            "min_raw_unsafe_reduction": min_raw_unsafe_reduction,
+            "max_fallback_rate_per_episode": max_fallback_rate_per_episode,
+            "max_reject_rate": max_reject_rate,
+            "max_walk_reject_rate": max_walk_reject_rate,
         },
     }
     blocking = [name for name, passed in checks.items() if not passed]
+    if strict_plan_a_claim:
+        blocking.extend(strict_claim["blocking_reasons"])
     actionable = [
         actionable_blocker(name, method_summary, comparisons, validation) for name in blocking
     ]
+    if strict_plan_a_claim:
+        status = "STRICT_PLAN_A_CLAIM_SUPPORTED" if not blocking else "STRICT_PLAN_A_NO_GO"
+    else:
+        status = "PASS_STRICT_ONLINE" if not blocking else "ONLINE_NO_GO"
     return {
         "phase": "CASA Phase5 online main experiment",
-        "status": "PASS_STRICT_ONLINE" if not blocking else "ONLINE_NO_GO",
+        "status": status,
         "go": not blocking,
+        "strict_plan_a_claim_enabled": strict_plan_a_claim,
         "expected_episodes": expected_episodes,
         "episode_count": len(episode_rows),
         "completed_count": sum(1 for row in episode_rows if row.get("status") == "completed"),
@@ -485,6 +550,247 @@ def decision_summary_by_method_and_skill(rows: list[dict[str, Any]]) -> dict[str
     return summary
 
 
+def fallback_reject_budget_audit(
+    episode_rows: list[dict[str, Any]],
+    decision_rows: list[dict[str, Any]],
+    *,
+    method_summary: dict[str, dict[str, Any]],
+    decision_summary: dict[str, Any],
+    casa_method: str,
+    max_fallback_rate_per_episode: float,
+    max_reject_rate: float,
+    max_walk_reject_rate: float,
+) -> dict[str, Any]:
+    method_row = method_summary.get(casa_method, {})
+    per_skill = decision_summary.get(casa_method, {})
+    casa_decisions = [row for row in decision_rows if row.get("method") == casa_method]
+    reject_rows = [row for row in casa_decisions if row.get("decision") == "reject"]
+    labels = _load_skill_labels(episode_rows)
+    labeled_rejects = [row for row in reject_rows if _decision_key(row) in labels]
+    safe_rejections = [
+        row
+        for row in labeled_rejects
+        if labels.get(_decision_key(row), {}).get("safe_label") != "unsafe"
+    ]
+    decision_count = len(casa_decisions)
+    reject_count = len(reject_rows)
+    fallback_count = sum(_int(row.get("fallback_executed")) for row in casa_decisions)
+    walk = per_skill.get("walk", {})
+    fallback_rate_per_episode = _float_or_none(method_row.get("fallback_rate_per_episode"))
+    reject_rate = reject_count / decision_count if decision_count else None
+    walk_reject_rate = _float_or_none(walk.get("reject_rate"))
+    output = {
+        "method": casa_method,
+        "fallback_rate_per_episode": fallback_rate_per_episode,
+        "fallback_count": fallback_count,
+        "decision_count": decision_count,
+        "reject_count": reject_count,
+        "reject_rate_per_decision": reject_rate,
+        "intervention_rate": reject_rate,
+        "walk_reject_rate": walk_reject_rate,
+        "per_skill_fallback_rate": {
+            skill: per_skill.get(skill, {}).get("fallback_rate") for skill in MAIN_SKILLS
+        },
+        "per_skill_reject_rate": {
+            skill: per_skill.get(skill, {}).get("reject_rate") for skill in MAIN_SKILLS
+        },
+        "safe_rejection_count": len(safe_rejections),
+        "labeled_reject_count": len(labeled_rejects),
+        "safe_rejection_rate": len(safe_rejections) / len(labeled_rejects) if labeled_rejects else None,
+        "recovery_only_rate": _recovery_only_rate(casa_decisions),
+        "thresholds": {
+            "max_fallback_rate_per_episode": max_fallback_rate_per_episode,
+            "max_reject_rate": max_reject_rate,
+            "max_walk_reject_rate": max_walk_reject_rate,
+        },
+    }
+    output["checks"] = {
+        "fallback_rate_per_episode_within_budget": (
+            fallback_rate_per_episode is not None
+            and fallback_rate_per_episode <= max_fallback_rate_per_episode
+        ),
+        "reject_rate_within_budget": reject_rate is not None and reject_rate <= max_reject_rate,
+        "walk_reject_rate_within_budget": (
+            walk_reject_rate is not None and walk_reject_rate <= max_walk_reject_rate
+        ),
+    }
+    return output
+
+
+def matched_budget_comparison(
+    method_summary: dict[str, dict[str, Any]],
+    *,
+    casa_method: str,
+    baseline_method: str,
+    budget_type: str = "fallback_rate_per_episode",
+    relative_tolerance: float = 0.10,
+) -> dict[str, Any]:
+    casa = method_summary.get(casa_method)
+    baseline = method_summary.get(baseline_method)
+    if not casa or not baseline:
+        return {
+            "budget_type": budget_type,
+            "baseline_method": baseline_method,
+            "method": casa_method,
+            "matched": False,
+            "winner": "insufficient_data",
+        }
+    casa_budget = _float_or_none(casa.get(budget_type))
+    baseline_budget = _float_or_none(baseline.get(budget_type))
+    budget_gap = (
+        abs(casa_budget - baseline_budget)
+        if casa_budget is not None and baseline_budget is not None
+        else None
+    )
+    tolerance = (
+        relative_tolerance * max(1.0, abs(baseline_budget))
+        if baseline_budget is not None
+        else None
+    )
+    matched = budget_gap is not None and tolerance is not None and budget_gap <= tolerance
+    casa_unsafe = _int(casa.get("unsafe_invocation_count"))
+    baseline_unsafe = _int(baseline.get("unsafe_invocation_count"))
+    casa_progress = _float_or_none(casa.get("task_progress_success_rate"))
+    baseline_progress = _float_or_none(baseline.get("task_progress_success_rate"))
+    if casa_unsafe < baseline_unsafe:
+        winner = casa_method
+    elif casa_unsafe > baseline_unsafe:
+        winner = baseline_method
+    elif casa_progress is not None and baseline_progress is not None:
+        winner = casa_method if casa_progress > baseline_progress else baseline_method
+    else:
+        winner = "tie"
+    return {
+        "budget_type": budget_type,
+        "budget_value": casa_budget,
+        "baseline_budget_value": baseline_budget,
+        "budget_gap": budget_gap,
+        "relative_tolerance": relative_tolerance,
+        "matched": matched,
+        "method": casa_method,
+        "baseline_method": baseline_method,
+        "casa_unsafe": casa_unsafe,
+        "global_unsafe": baseline_unsafe if baseline_method == "global_conformal" else None,
+        "baseline_unsafe": baseline_unsafe,
+        "casa_task_progress_success": casa_progress,
+        "global_task_progress_success": (
+            baseline_progress if baseline_method == "global_conformal" else None
+        ),
+        "baseline_task_progress_success": baseline_progress,
+        "winner": winner,
+        "note": (
+            "Observed-budget diagnostic only; run a threshold sweep to construct a true Pareto "
+            "matched-intervention frontier."
+        ),
+    }
+
+
+def strict_plan_a_claim_audit(
+    *,
+    method_summary: dict[str, dict[str, Any]],
+    comparisons: dict[str, Any],
+    fallback_budget: dict[str, Any],
+    matched_budget: dict[str, Any],
+    expected_methods: list[str],
+    casa_method: str,
+    min_global_unsafe_reduction: float,
+    min_global_task_progress_advantage: float,
+    min_raw_unsafe_reduction: float,
+    min_hard_unsafe_reduction: float,
+) -> dict[str, Any]:
+    present_methods = set(method_summary)
+    expected_method_set = set(expected_methods)
+    all_original_present = set(ORIGINAL_PLAN_A_METHODS).issubset(present_methods) and set(
+        ORIGINAL_PLAN_A_METHODS
+    ).issubset(expected_method_set)
+    original_casa = casa_method == ORIGINAL_PLAN_A_CASA_METHOD
+    variant_methods = sorted(present_methods.intersection(ONLINE_CANDIDATE_METHODS))
+    global_comp = comparisons.get("casa_vs_global", {})
+    raw_comp = comparisons.get("casa_vs_raw_critic", {})
+    hard_comp = comparisons.get("casa_vs_hard", {})
+    casa = method_summary.get(casa_method, {})
+    global_row = method_summary.get("global_conformal", {})
+    casa_progress = _float_or_none(casa.get("task_progress_success_rate"))
+    global_progress = _float_or_none(global_row.get("task_progress_success_rate"))
+    global_unsafe_pass = (
+        global_comp.get("unsafe_reduction") is not None
+        and float(global_comp.get("unsafe_reduction")) >= min_global_unsafe_reduction
+    )
+    global_task_progress_pass = (
+        casa_progress is not None
+        and global_progress is not None
+        and casa_progress - global_progress >= min_global_task_progress_advantage
+    )
+    raw_pass = (
+        raw_comp.get("unsafe_reduction") is not None
+        and float(raw_comp.get("unsafe_reduction")) >= min_raw_unsafe_reduction
+    )
+    hard_pass = (
+        hard_comp.get("unsafe_reduction") is not None
+        and float(hard_comp.get("unsafe_reduction")) >= min_hard_unsafe_reduction
+    )
+    task_success_split_present = all(
+        "safe_completion_rate" in row and "task_progress_success_rate" in row
+        for row in method_summary.values()
+    )
+    budget_checks = fallback_budget.get("checks", {})
+    checks = {
+        "all_five_original_methods_present": all_original_present,
+        "original_casa_method": original_casa,
+        "casa_vs_global_advantage": global_unsafe_pass or global_task_progress_pass,
+        "casa_vs_raw_critic_unsafe_reduction": raw_pass,
+        "casa_vs_hard_unsafe_reduction": hard_pass,
+        "fallback_rate_budget": bool(budget_checks.get("fallback_rate_per_episode_within_budget")),
+        "reject_rate_budget": bool(budget_checks.get("reject_rate_within_budget")),
+        "walk_reject_rate_budget": bool(budget_checks.get("walk_reject_rate_within_budget")),
+        "task_success_split_fields_present": task_success_split_present,
+        "matched_budget_comparison_present": bool(matched_budget),
+    }
+    blocker_map = {
+        "all_five_original_methods_present": "strict_plan_a_missing_original_five_methods",
+        "original_casa_method": "strict_plan_a_requires_original_casa_a_per_skill",
+        "casa_vs_global_advantage": "casa_a_per_skill_does_not_outperform_global_conformal",
+        "casa_vs_raw_critic_unsafe_reduction": "casa_vs_raw_critic_unsafe_reduction_below_threshold",
+        "casa_vs_hard_unsafe_reduction": "casa_vs_hard_unsafe_reduction_below_threshold",
+        "fallback_rate_budget": "casa_fallback_rate_exceeds_strict_plan_a_budget",
+        "reject_rate_budget": "casa_reject_rate_exceeds_strict_plan_a_budget",
+        "walk_reject_rate_budget": "casa_walk_reject_rate_exceeds_strict_plan_a_budget",
+        "task_success_split_fields_present": "task_success_split_fields_missing",
+        "matched_budget_comparison_present": "matched_budget_comparison_missing",
+    }
+    blockers = [blocker_map[name] for name, passed in checks.items() if not passed]
+    return {
+        "status": "STRICT_PLAN_A_CLAIM_SUPPORTED" if not blockers else "STRICT_PLAN_A_NO_GO",
+        "go": not blockers,
+        "checks": checks,
+        "blocking_reasons": blockers,
+        "method_kind": "original_plan_a" if original_casa else "plan_a_plus_variant",
+        "original_plan_a_methods": list(ORIGINAL_PLAN_A_METHODS),
+        "present_methods": sorted(present_methods),
+        "expected_methods": list(expected_methods),
+        "casa_method": casa_method,
+        "variant_methods_present": variant_methods,
+        "thresholds": {
+            "min_global_unsafe_reduction": min_global_unsafe_reduction,
+            "min_global_task_progress_advantage": min_global_task_progress_advantage,
+            "min_raw_unsafe_reduction": min_raw_unsafe_reduction,
+            "min_hard_unsafe_reduction": min_hard_unsafe_reduction,
+        },
+        "global_advantage_evidence": {
+            "unsafe_reduction": global_comp.get("unsafe_reduction"),
+            "casa_task_progress_success_rate": casa_progress,
+            "global_task_progress_success_rate": global_progress,
+            "task_progress_advantage": (
+                casa_progress - global_progress
+                if casa_progress is not None and global_progress is not None
+                else None
+            ),
+        },
+        "fallback_reject_budget": fallback_budget,
+        "matched_budget_comparison": matched_budget,
+    }
+
+
 def skill_label_summary_from_rollouts(rows: list[dict[str, Any]]) -> dict[str, Any]:
     output: dict[str, Any] = defaultdict(lambda: defaultdict(lambda: {"total": 0, "safe": 0, "unsafe": 0}))
     loaded = 0
@@ -531,6 +837,98 @@ def confidence_intervals(method_summary: dict[str, dict[str, Any]]) -> dict[str,
             "task_success_rate_wilson_95": _wilson_interval(task_success, count),
             "unsafe_invocation_rate_per_episode": row.get("unsafe_invocation_rate_per_episode"),
         }
+    return output
+
+
+def _augment_method_summary_with_task_progress(
+    method_rows: list[dict[str, Any]],
+    decision_rows: list[dict[str, Any]],
+) -> None:
+    by_method: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in decision_rows:
+        by_method[str(row.get("method", ""))].append(row)
+    for row in method_rows:
+        method = str(row.get("method", ""))
+        rows = by_method.get(method, [])
+        decision_count = len(rows)
+        intended_executed = [
+            decision
+            for decision in rows
+            if str(decision.get("executed_skill", "")) == str(decision.get("candidate_skill", ""))
+            and _int(decision.get("fallback_executed")) == 0
+        ]
+        fallback_replaced = [
+            decision
+            for decision in rows
+            if _int(decision.get("fallback_executed")) == 1
+            and str(decision.get("executed_skill", "")) != str(decision.get("candidate_skill", ""))
+        ]
+        rows_with_progress = [decision for decision in rows if "task_progress_executed" in decision]
+        if rows_with_progress:
+            progress_count = sum(_int(decision.get("task_progress_executed")) for decision in rows_with_progress)
+            progress_denominator = len(rows_with_progress)
+        else:
+            progress_count = len(
+                [
+                    decision
+                    for decision in intended_executed
+                    if str(decision.get("candidate_skill", "")) in CORE_TASK_PROGRESS_SKILLS
+                ]
+            )
+            progress_denominator = len(
+                [
+                    decision
+                    for decision in rows
+                    if str(decision.get("candidate_skill", "")) in CORE_TASK_PROGRESS_SKILLS
+                ]
+            )
+        per_skill_progress = _per_skill_task_progress_rates(rows)
+        task_progress_success_rate = (
+            progress_count / progress_denominator if progress_denominator else None
+        )
+        row.update(
+            {
+                "decision_count": decision_count,
+                "candidate_skill_executed_count": len(intended_executed),
+                "candidate_skill_executed_rate": (
+                    len(intended_executed) / decision_count if decision_count else None
+                ),
+                "fallback_replaced_core_skill_count": len(fallback_replaced),
+                "fallback_replaced_core_skill_rate": (
+                    len(fallback_replaced) / decision_count if decision_count else None
+                ),
+                "task_progress_success_count": progress_count,
+                "task_progress_decision_count": progress_denominator,
+                "task_progress_success_rate": task_progress_success_rate,
+                "semantic_task_success_rate": task_progress_success_rate,
+                "walk_progress_success_rate": per_skill_progress.get("walk"),
+                "turn_target_success_rate": per_skill_progress.get("turn"),
+                "gesture_completion_success_rate": per_skill_progress.get("gesture"),
+                "passive_completion_success_rate": per_skill_progress.get("passive"),
+            }
+        )
+
+
+def _per_skill_task_progress_rates(rows: list[dict[str, Any]]) -> dict[str, float | None]:
+    output: dict[str, float | None] = {}
+    for skill in MAIN_SKILLS:
+        skill_rows = [row for row in rows if row.get("candidate_skill") == skill]
+        if not skill_rows:
+            output[skill] = None
+            continue
+        rows_with_progress = [row for row in skill_rows if "task_progress_executed" in row]
+        if rows_with_progress:
+            output[skill] = sum(_int(row.get("task_progress_executed")) for row in rows_with_progress) / len(
+                rows_with_progress
+            )
+            continue
+        output[skill] = sum(
+            1
+            for row in skill_rows
+            if row.get("executed_skill") == row.get("candidate_skill")
+            and _int(row.get("fallback_executed")) == 0
+            and row.get("result_status") == "success"
+        ) / len(skill_rows)
     return output
 
 
@@ -594,8 +992,18 @@ def policy_execution_diagnostics(
     }
 
 
+def _recovery_only_rate(rows: list[dict[str, Any]]) -> float | None:
+    reject_rows = [row for row in rows if row.get("decision") == "reject"]
+    if not reject_rows:
+        return None
+    return sum(1 for row in rows if row.get("attempt_type") == "recovery_only") / len(reject_rows)
+
+
 def online_report_markdown(audit: dict[str, Any]) -> str:
     method_summary = audit.get("method_summary", {})
+    strict_claim = audit.get("diagnostics", {}).get("strict_plan_a_claim", {})
+    fallback_budget = audit.get("diagnostics", {}).get("fallback_reject_budget", {})
+    matched_budget = audit.get("diagnostics", {}).get("matched_budget_comparison", {})
     lines = [
         "# CASA Phase5 Online Main Experiment Report",
         "",
@@ -624,8 +1032,8 @@ def online_report_markdown(audit: dict[str, Any]) -> str:
             "",
             "## Method Summary",
             "",
-            "| method | episodes | unsafe | unsafe/episode | fallback/episode | task_success_rate | mean_time_s |",
-            "|---|---:|---:|---:|---:|---:|---:|",
+            "| method | episodes | unsafe | unsafe/episode | fallback/episode | safe_completion_rate | task_progress_success_rate | mean_time_s |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     for method in ONLINE_METHOD_ORDER:
@@ -635,7 +1043,8 @@ def online_report_markdown(audit: dict[str, Any]) -> str:
         lines.append(
             f"| {row.get('method_display', method)} | {row.get('episode_count')} | "
             f"{row.get('unsafe_invocation_count')} | {_fmt(row.get('unsafe_invocation_rate_per_episode'))} | "
-            f"{_fmt(row.get('fallback_rate_per_episode'))} | {_fmt(row.get('task_success_rate'))} | "
+            f"{_fmt(row.get('fallback_rate_per_episode'))} | {_fmt(row.get('safe_completion_rate'))} | "
+            f"{_fmt(row.get('task_progress_success_rate'))} | "
             f"{_fmt(row.get('mean_completion_time_s'))} |"
         )
     lines.extend(["", "## Checks", ""])
@@ -643,6 +1052,26 @@ def online_report_markdown(audit: dict[str, Any]) -> str:
         lines.append(f"- {name}: `{'PASS' if passed else 'FAIL'}`")
     lines.extend(["", "## Baseline Comparisons", "", "```json"])
     lines.append(json.dumps(audit["diagnostics"].get("baseline_comparisons", {}), indent=2, sort_keys=True))
+    lines.extend(["```", "", "## Anti-gaming / Claim-validity Checks", ""])
+    lines.append(f"- strict_plan_a_claim_status: `{strict_claim.get('status', 'n/a')}`")
+    lines.append(f"- strict_plan_a_claim_go: `{strict_claim.get('go', 'n/a')}`")
+    lines.append(f"- method_kind: `{strict_claim.get('method_kind', 'n/a')}`")
+    lines.append(
+        f"- global_conformal_advantage_check: `{'PASS' if strict_claim.get('checks', {}).get('casa_vs_global_advantage') else 'FAIL'}`"
+    )
+    lines.append(
+        f"- fallback_rate_per_episode: `{_fmt(fallback_budget.get('fallback_rate_per_episode'))}`"
+    )
+    lines.append(f"- reject_rate_per_decision: `{_fmt(fallback_budget.get('reject_rate_per_decision'))}`")
+    lines.append(f"- walk_reject_rate: `{_fmt(fallback_budget.get('walk_reject_rate'))}`")
+    lines.append(f"- matched_budget_winner: `{matched_budget.get('winner', 'n/a')}`")
+    if strict_claim.get("blocking_reasons"):
+        lines.append("- strict_plan_a_claim_blockers:")
+        lines.extend(f"  - `{blocker}`" for blocker in strict_claim["blocking_reasons"])
+    else:
+        lines.append("- strict_plan_a_claim_blockers: none")
+    lines.extend(["", "```json"])
+    lines.append(json.dumps(strict_claim, indent=2, sort_keys=True))
     lines.extend(["```", "", "## Artifact Validation", "", "```json"])
     lines.append(json.dumps(audit["diagnostics"].get("artifact_validation", {}), indent=2, sort_keys=True))
     lines.extend(["```", "", "## Per-skill Diagnostics", "", "```json"])
@@ -656,11 +1085,13 @@ def online_go_no_go(audit: dict[str, Any]) -> dict[str, Any]:
         "phase": "CASA Phase5 online",
         "go": audit["go"],
         "status": audit["status"],
+        "strict_plan_a_claim_enabled": audit.get("strict_plan_a_claim_enabled", False),
         "blocking_reasons": audit["blocking_reasons"],
         "warning_reasons": audit["warning_reasons"],
         "actionable_blockers": audit["actionable_blockers"],
         "method_summary": audit["method_summary"],
         "checks": audit["checks"],
+        "strict_plan_a_claim": audit.get("diagnostics", {}).get("strict_plan_a_claim"),
     }
 
 
@@ -718,6 +1149,29 @@ def actionable_blocker(
             "check": check,
             "evidence": f"Missing per-skill coverage: {validation.get('missing_per_skill_coverage')}",
             "next_step": "Ensure the online skill schedule covers walk/turn/gesture/passive for every method.",
+        }
+    if check == "casa_a_per_skill_does_not_outperform_global_conformal":
+        comp = comparisons.get("casa_vs_global", {})
+        return {
+            "check": check,
+            "evidence": (
+                "Strict Plan A claim mode requires CASA-A to show a defensible advantage over "
+                f"global conformal; unsafe_reduction={_fmt(comp.get('unsafe_reduction'))}, "
+                f"task_success_drop_rel={_fmt(comp.get('task_success_drop_rel'))}."
+            ),
+            "next_step": (
+                "Do not overclaim the original Plan A result; add matched-budget evidence, "
+                "retune per-skill thresholds, or report the weaker automated-audit claim."
+            ),
+        }
+    if check.startswith("casa_") or check.startswith("strict_plan_a") or check.startswith("task_success"):
+        return {
+            "check": check,
+            "evidence": "See diagnostics.strict_plan_a_claim and diagnostics.fallback_reject_budget.",
+            "next_step": (
+                "Resolve the strict claim-validity blocker or keep the result labeled as an "
+                "automated engineering audit rather than the strongest original Plan A paper claim."
+            ),
         }
     return {
         "check": check,

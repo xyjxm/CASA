@@ -14,17 +14,16 @@
 
 - sonic_task_success_rate_low_relative_drop_check_is_unstable
 - hard_contract_intervenes_more_than_casa_diagnostic
-- raw_lane_episode_duplicates_were_deduped
 
 ## Method Summary
 
-| method | episodes | unsafe | unsafe/episode | fallback/episode | task_success_rate | mean_time_s |
-|---|---:|---:|---:|---:|---:|---:|
-| SONIC-only | 500 | 3559 | 7.1180 | 0.0000 | 0.0260 | 29.3428 |
-| SONIC + Hard Contract | 500 | 3643 | 7.2860 | 6.2220 | 0.0220 | 21.3717 |
-| SONIC + Raw Critic (0.5) | 500 | 1223 | 2.4460 | 3.8660 | 0.4580 | 23.3016 |
-| SONIC + Global Conformal | 500 | 847 | 1.6940 | 4.3040 | 0.6560 | 21.8186 |
-| SONIC + CASA-A (per-skill conformal) | 500 | 934 | 1.8680 | 5.2120 | 0.6100 | 22.0777 |
+| method | episodes | unsafe | unsafe/episode | fallback/episode | safe_completion_rate | task_progress_success_rate | mean_time_s |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| SONIC-only | 500 | 3559 | 7.1180 | 0.0000 | 0.0260 | 1.0000 | 29.3428 |
+| SONIC + Hard Contract | 500 | 3643 | 7.2860 | 6.2220 | 0.0220 | 0.2223 | 21.3717 |
+| SONIC + Raw Critic (0.5) | 500 | 1223 | 2.4460 | 3.8660 | 0.4580 | 0.5168 | 23.3016 |
+| SONIC + Global Conformal | 500 | 847 | 1.6940 | 4.3040 | 0.6560 | 0.4620 | 21.8186 |
+| SONIC + CASA-A (per-skill conformal) | 500 | 934 | 1.8680 | 5.2120 | 0.6100 | 0.3485 | 22.0777 |
 
 ## Checks
 
@@ -98,6 +97,137 @@
     "task_success_drop_rel": -22.46153846153846,
     "unsafe_reduction": 0.7375667322281539
   }
+}
+```
+
+## Anti-gaming / Claim-validity Checks
+
+- strict_plan_a_claim_status: `STRICT_PLAN_A_NO_GO`
+- strict_plan_a_claim_go: `False`
+- method_kind: `original_plan_a`
+- global_conformal_advantage_check: `FAIL`
+- fallback_rate_per_episode: `5.2120`
+- reject_rate_per_decision: `0.6515`
+- walk_reject_rate: `0.9247`
+- matched_budget_winner: `global_conformal`
+- strict_plan_a_claim_blockers:
+  - `casa_a_per_skill_does_not_outperform_global_conformal`
+  - `casa_fallback_rate_exceeds_strict_plan_a_budget`
+  - `casa_reject_rate_exceeds_strict_plan_a_budget`
+  - `casa_walk_reject_rate_exceeds_strict_plan_a_budget`
+
+```json
+{
+  "blocking_reasons": [
+    "casa_a_per_skill_does_not_outperform_global_conformal",
+    "casa_fallback_rate_exceeds_strict_plan_a_budget",
+    "casa_reject_rate_exceeds_strict_plan_a_budget",
+    "casa_walk_reject_rate_exceeds_strict_plan_a_budget"
+  ],
+  "casa_method": "casa_a_per_skill",
+  "checks": {
+    "all_five_original_methods_present": true,
+    "casa_vs_global_advantage": false,
+    "casa_vs_hard_unsafe_reduction": true,
+    "casa_vs_raw_critic_unsafe_reduction": true,
+    "fallback_rate_budget": false,
+    "matched_budget_comparison_present": true,
+    "original_casa_method": true,
+    "reject_rate_budget": false,
+    "task_success_split_fields_present": true,
+    "walk_reject_rate_budget": false
+  },
+  "expected_methods": [
+    "sonic_only",
+    "hard_contract",
+    "raw_critic_0p5",
+    "global_conformal",
+    "casa_a_per_skill"
+  ],
+  "fallback_reject_budget": {
+    "checks": {
+      "fallback_rate_per_episode_within_budget": false,
+      "reject_rate_within_budget": false,
+      "walk_reject_rate_within_budget": false
+    },
+    "decision_count": 4000,
+    "fallback_count": 2606,
+    "fallback_rate_per_episode": 5.212,
+    "intervention_rate": 0.6515,
+    "labeled_reject_count": 2606,
+    "method": "casa_a_per_skill",
+    "per_skill_fallback_rate": {
+      "gesture": 0.492,
+      "passive": 0.477,
+      "turn": 0.496,
+      "walk": 0.9246666666666666
+    },
+    "per_skill_reject_rate": {
+      "gesture": 0.492,
+      "passive": 0.477,
+      "turn": 0.496,
+      "walk": 0.9246666666666666
+    },
+    "recovery_only_rate": 1.0,
+    "reject_count": 2606,
+    "reject_rate_per_decision": 0.6515,
+    "safe_rejection_count": 1774,
+    "safe_rejection_rate": 0.6807367613200307,
+    "thresholds": {
+      "max_fallback_rate_per_episode": 2.0,
+      "max_reject_rate": 0.5,
+      "max_walk_reject_rate": 0.75
+    },
+    "walk_reject_rate": 0.9246666666666666
+  },
+  "global_advantage_evidence": {
+    "casa_task_progress_success_rate": 0.3485,
+    "global_task_progress_success_rate": 0.462,
+    "task_progress_advantage": -0.11350000000000005,
+    "unsafe_reduction": -0.10271546635182999
+  },
+  "go": false,
+  "matched_budget_comparison": {
+    "baseline_budget_value": 4.304,
+    "baseline_method": "global_conformal",
+    "baseline_task_progress_success": 0.462,
+    "baseline_unsafe": 847,
+    "budget_gap": 0.9079999999999995,
+    "budget_type": "fallback_rate_per_episode",
+    "budget_value": 5.212,
+    "casa_task_progress_success": 0.3485,
+    "casa_unsafe": 934,
+    "global_task_progress_success": 0.462,
+    "global_unsafe": 847,
+    "matched": false,
+    "method": "casa_a_per_skill",
+    "note": "Observed-budget diagnostic only; run a threshold sweep to construct a true Pareto matched-intervention frontier.",
+    "relative_tolerance": 0.1,
+    "winner": "global_conformal"
+  },
+  "method_kind": "original_plan_a",
+  "original_plan_a_methods": [
+    "sonic_only",
+    "hard_contract",
+    "raw_critic_0p5",
+    "global_conformal",
+    "casa_a_per_skill"
+  ],
+  "present_methods": [
+    "casa_a_per_skill",
+    "global_conformal",
+    "hard_contract",
+    "raw_critic_0p5",
+    "sonic_only"
+  ],
+  "status": "STRICT_PLAN_A_NO_GO",
+  "thresholds": {
+    "min_global_task_progress_advantage": 0.1,
+    "min_global_unsafe_reduction": 0.1,
+    "min_hard_unsafe_reduction": 0.2,
+    "min_raw_unsafe_reduction": 0.1
+  },
+  "variant_methods_present": []
 }
 ```
 

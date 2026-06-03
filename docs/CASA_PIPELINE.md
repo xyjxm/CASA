@@ -148,6 +148,10 @@ Threshold selection modes:
 Offline reports use `safe_acceptance_rate` for safe-sample acceptance /
 false-positive control. This is not real task completion; online reports use
 `task_success_rate` when episode completion labels exist.
+The online audit now also reports `safe_completion_rate` and
+`task_progress_success_rate`. The legacy `task_success_rate` field remains for
+backward compatibility, while strict claim review should use the task-progress
+fields to avoid treating a stopped-but-safe episode as semantic task success.
 
 Hard-contract comparisons distinguish blocking checks from diagnostics. If the
 fixed hard contract accepts zero unsafe examples, relative unsafe reduction is
@@ -189,14 +193,44 @@ Use `--strict` in CI or release checks when a non-GO audit should return a
 non-zero exit code. Without `--strict`, the script still writes the full audit
 artifacts so a failed online run remains inspectable.
 
+Use `--strict-plan-a-claim` for reviewer-facing checks of the strongest original
+Plan A paper claim. This mode keeps the normal online audit available, but it
+adds blockers for claim-validity risks that the default engineering GO/NO-GO
+does not require:
+
+- all five original methods must be present:
+  `sonic_only`, `hard_contract`, `raw_critic_0p5`, `global_conformal`, and
+  `casa_a_per_skill`;
+- the CASA method must be original `casa_a_per_skill`; recovery, hard-OR, and
+  receding methods are Plan A+ variants;
+- CASA-A must show a defensible advantage over `global_conformal`;
+- CASA-A must also clear raw-critic and hard-contract unsafe-reduction checks;
+- fallback/reject budgets must stay within the strict reviewer thresholds; and
+- safe completion must be separated from task-progress or semantic success.
+
+For example:
+
+```bash
+python gear_sonic/scripts/casa_audit_phase5_online.py \
+  --online-dir outputs/casa/phase5_conformal_baselines_YYYYMMDD/online_real_main_2500/merged \
+  --output-dir outputs/casa/phase5_conformal_baselines_YYYYMMDD/online_real_main_2500/strict_claim_audit \
+  --expected-episodes 2500 \
+  --expected-methods sonic_only,hard_contract,raw_critic_0p5,global_conformal,casa_a_per_skill \
+  --expected-seeds 1234,1235,1236,1237,1238 \
+  --episodes-per-seed 100 \
+  --strict-plan-a-claim
+```
+
 The online audit writes:
 
 - `online_episode_results.csv`: one row per method/seed/episode.
 - `gate_decisions.csv`: one row per gate decision inside completed episodes.
-- `method_summary.csv` and `method_summary.json`: per-method task success,
-  fallback, violation, and unsafe-invocation totals/rates.
+- `method_summary.csv` and `method_summary.json`: per-method legacy task
+  success, safe completion, task-progress, fallback, violation, and
+  unsafe-invocation totals/rates.
 - `online_acceptance_audit.json`: full schema validation, checks, warnings,
-  confidence intervals, baseline comparisons, and per-skill diagnostics.
+  confidence intervals, baseline comparisons, anti-gaming diagnostics, and
+  per-skill diagnostics.
 - `online_go_no_go.json`: compact status, blocking reasons, warnings, and
   actionable next steps.
 - `online_report.md`: human-readable online report.
@@ -213,6 +247,23 @@ The audit must not force a `PASS_STRICT_ONLINE` result. If the real data still
 fails safety or task-success criteria, status remains `ONLINE_NO_GO` and the
 report lists actionable blockers such as insufficient CASA-vs-SONIC unsafe
 reduction or excessive task-success drop.
+
+### Plan A Completion Evidence
+
+The default tracked evidence for the 2026-06-02 Plan A audit lives in
+`idea_and_plan/plan_a_completion_20260602/`. It includes merged online CSVs,
+audit reports, the strict phase audit script, `artifact_manifest.json`,
+`run_command.sh`, expected method/seed files, source artifact hashes, and
+per-CSV sha256 files. The same evidence should also be reachable from a clearly
+named tag or release when it is promoted for review.
+
+The archived default online audit reports `PASS_STRICT_ONLINE` for the
+engineering acceptance checks. The nested strict Plan A claim diagnostic reports
+`STRICT_PLAN_A_NO_GO`: the current original `casa_a_per_skill` evidence does not
+outperform `global_conformal`, and it exceeds the strict fallback/reject/walk
+reject budgets. That distinction is intentional. Do not describe the archived
+evidence as supporting the strongest original Plan A claim unless the
+`--strict-plan-a-claim` audit becomes GO on fresh or promoted evidence.
 
 ### Phase 5 Online Performance Iteration
 

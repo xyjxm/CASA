@@ -32,6 +32,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--episodes-per-seed", type=int)
     parser.add_argument("--skills-per-episode", type=int, default=8)
     parser.add_argument("--casa-method", default="casa_a_per_skill")
+    parser.add_argument("--strict-plan-a-claim", action="store_true")
+    parser.add_argument("--min-global-unsafe-reduction", type=float, default=0.10)
+    parser.add_argument("--min-global-task-progress-advantage", type=float, default=0.10)
+    parser.add_argument("--min-raw-unsafe-reduction", type=float, default=0.10)
+    parser.add_argument("--max-fallback-rate-per-episode", type=float, default=2.0)
+    parser.add_argument("--max-reject-rate", type=float, default=0.50)
+    parser.add_argument("--max-walk-reject-rate", type=float, default=0.75)
     return parser.parse_args()
 
 
@@ -53,7 +60,7 @@ def main() -> None:
     decision_rows = _dedupe_decision_rows(decision_rows, episode_rows)
     expected_methods = _parse_methods(args.expected_methods)
     expected_seeds = _parse_seeds(args.expected_seeds) if args.expected_seeds else None
-    method_summary = method_summary_rows(episode_rows)
+    method_summary = method_summary_rows(episode_rows, decision_rows)
     audit = build_online_audit(
         episode_rows,
         decision_rows,
@@ -66,6 +73,13 @@ def main() -> None:
         raw_episode_row_count=raw_episode_row_count,
         raw_decision_row_count=raw_decision_row_count,
         casa_method=args.casa_method,
+        strict_plan_a_claim=args.strict_plan_a_claim,
+        min_global_unsafe_reduction=args.min_global_unsafe_reduction,
+        min_global_task_progress_advantage=args.min_global_task_progress_advantage,
+        min_raw_unsafe_reduction=args.min_raw_unsafe_reduction,
+        max_fallback_rate_per_episode=args.max_fallback_rate_per_episode,
+        max_reject_rate=args.max_reject_rate,
+        max_walk_reject_rate=args.max_walk_reject_rate,
     )
     audit["raw_episode_row_count"] = raw_episode_row_count
     audit["raw_decision_row_count"] = raw_decision_row_count
@@ -119,7 +133,7 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
             if key not in fieldnames:
                 fieldnames.append(key)
     with path.open("w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer = csv.DictWriter(file, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 

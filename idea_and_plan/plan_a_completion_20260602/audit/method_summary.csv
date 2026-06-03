@@ -1,6 +1,6 @@
-method,method_display,episode_count,completed_count,failed_or_unverified,task_success_count,task_success_rate,unsafe_invocation_count,unsafe_invocation_rate_per_episode,fallback_count,fallback_rate_per_episode,mean_completion_time_s
-casa_a_per_skill,SONIC + CASA-A (per-skill conformal),500,500,0,305,0.61,934,1.868,2606,5.212,22.077691814899445
-global_conformal,SONIC + Global Conformal,500,500,0,328,0.656,847,1.694,2152,4.304,21.818568910598756
-hard_contract,SONIC + Hard Contract,500,500,0,11,0.022,3643,7.286,3111,6.222,21.371739627361297
-raw_critic_0p5,SONIC + Raw Critic (0.5),500,500,0,229,0.458,1223,2.446,1933,3.866,23.301571413517
-sonic_only,SONIC-only,500,500,0,13,0.026,3559,7.118,0,0.0,29.342801418304443
+method,method_display,episode_count,completed_count,failed_or_unverified,task_success_count,task_success_rate,safe_completion_count,safe_completion_rate,unsafe_invocation_count,unsafe_invocation_rate_per_episode,fallback_count,fallback_rate_per_episode,mean_completion_time_s,decision_count,candidate_skill_executed_count,candidate_skill_executed_rate,fallback_replaced_core_skill_count,fallback_replaced_core_skill_rate,task_progress_success_count,task_progress_decision_count,task_progress_success_rate,semantic_task_success_rate,walk_progress_success_rate,turn_target_success_rate,gesture_completion_success_rate,passive_completion_success_rate
+casa_a_per_skill,SONIC + CASA-A (per-skill conformal),500,500,0,305,0.61,305,0.61,934,1.868,2606,5.212,22.077691814899445,4000,1394,0.3485,2129,0.53225,1394,4000,0.3485,0.3485,0.07533333333333334,0.504,0.508,0.523
+global_conformal,SONIC + Global Conformal,500,500,0,328,0.656,328,0.656,847,1.694,2152,4.304,21.818568910598756,4000,1848,0.462,1906,0.4765,1848,4000,0.462,0.462,0.04066666666666666,0.667,0.732,0.754
+hard_contract,SONIC + Hard Contract,500,500,0,11,0.022,11,0.022,3643,7.286,3111,6.222,21.371739627361297,4000,889,0.22225,2215,0.55375,889,4000,0.22225,0.22225,0.39866666666666667,0.116,0.142,0.104
+raw_critic_0p5,SONIC + Raw Critic (0.5),500,500,0,229,0.458,229,0.458,1223,2.446,1933,3.866,23.301571413517,4000,2067,0.51675,1667,0.41675,2067,4000,0.51675,0.51675,0.13733333333333334,0.714,0.826,0.734
+sonic_only,SONIC-only,500,500,0,13,0.026,13,0.026,3559,7.118,0,0.0,29.342801418304443,4000,4000,1.0,0,0.0,4000,4000,1.0,1.0,1.0,1.0,1.0,1.0

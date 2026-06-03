@@ -18,6 +18,23 @@ deployment environment. CASA adds a safety layer around that controller:
 6. Calibrate global and per-skill conformal gates.
 7. Compare CASA-A against SONIC-only and safety baselines.
 
+## Claim Boundaries
+
+CASA uses two review levels for Phase 5 online evidence. The default online
+audit is an engineering acceptance check for complete artifacts, safety
+improvement over SONIC/hard-contract baselines, and bounded task-success drop.
+The reviewer-facing `--strict-plan-a-claim` audit is stronger: it requires the
+original five methods, original `casa_a_per_skill`, CASA-vs-global evidence,
+raw/hard baseline checks, fallback/reject budget checks, and a split between
+safe completion and task-progress success.
+
+The 2026-06-02 evidence archived in
+`idea_and_plan/plan_a_completion_20260602/` passes the default online audit but
+does not support the strongest original Plan A claim. Its strict claim
+diagnostic is `STRICT_PLAN_A_NO_GO` because `global_conformal` is better on the
+recorded unsafe/task-progress comparison and CASA-A exceeds the strict
+fallback/reject budgets.
+
 ## Architecture
 
 | Component | Location | Role |

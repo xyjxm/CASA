@@ -68,6 +68,17 @@ CASA scripts use the `casa_*.py` prefix.
 
 Phase 5 online performance iteration notes:
 
+- `casa_audit_phase5_online.py --strict-plan-a-claim` and
+  `casa_merge_phase5_online_results.py --strict-plan-a-claim` run the stronger
+  reviewer-facing original Plan A claim audit. This mode requires the original
+  five methods and `casa_a_per_skill`, checks CASA-A against global conformal,
+  raw critic, and hard contract baselines, audits fallback/reject budgets, and
+  reports task-progress success separately from safe completion.
+- Strict claim thresholds can be adjusted with
+  `--min-global-unsafe-reduction`, `--min-global-task-progress-advantage`,
+  `--min-raw-unsafe-reduction`, `--max-fallback-rate-per-episode`,
+  `--max-reject-rate`, and `--max-walk-reject-rate`. The defaults are intended
+  for claim validation, not for weakening the default online audit.
 - `casa_run_phase5_online_main_lowmem.py --performance-preset hard_or_receding_adaptive`
   runs the PR #8 pilot candidate with `sonic_only`, `hard_contract`, and
   `casa_a_hard_or_receding_recovery`.

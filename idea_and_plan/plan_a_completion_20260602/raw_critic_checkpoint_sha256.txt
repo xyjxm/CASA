@@ -1,0 +1,1 @@
+419118d225b554e25aaa0d679fb4ab8feafeec3e98de27af5d18511f3efcbfdc  /mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase4_dataset_v1_strict_50k_20260522/raw_critic/raw_critic.pt

@@ -176,15 +176,76 @@
         1237,
         1238
       ],
+      "max_fallback_rate_per_episode": 2.0,
+      "max_reject_rate": 0.5,
       "max_task_success_drop_abs": 0.1,
       "max_task_success_drop_rel": 0.3,
+      "max_walk_reject_rate": 0.75,
+      "min_global_task_progress_advantage": 0.1,
+      "min_global_unsafe_reduction": 0.1,
       "min_hard_unsafe_reduction": 0.2,
+      "min_raw_unsafe_reduction": 0.1,
       "min_sonic_unsafe_reduction": 0.4,
-      "skills_per_episode": 8
+      "skills_per_episode": 8,
+      "strict_plan_a_claim": false
     },
     "deduped_decision_row_count": 20000,
     "deduped_episode_row_count": 2500,
+    "fallback_reject_budget": {
+      "checks": {
+        "fallback_rate_per_episode_within_budget": false,
+        "reject_rate_within_budget": false,
+        "walk_reject_rate_within_budget": false
+      },
+      "decision_count": 4000,
+      "fallback_count": 2606,
+      "fallback_rate_per_episode": 5.212,
+      "intervention_rate": 0.6515,
+      "labeled_reject_count": 2606,
+      "method": "casa_a_per_skill",
+      "per_skill_fallback_rate": {
+        "gesture": 0.492,
+        "passive": 0.477,
+        "turn": 0.496,
+        "walk": 0.9246666666666666
+      },
+      "per_skill_reject_rate": {
+        "gesture": 0.492,
+        "passive": 0.477,
+        "turn": 0.496,
+        "walk": 0.9246666666666666
+      },
+      "recovery_only_rate": 1.0,
+      "reject_count": 2606,
+      "reject_rate_per_decision": 0.6515,
+      "safe_rejection_count": 1774,
+      "safe_rejection_rate": 0.6807367613200307,
+      "thresholds": {
+        "max_fallback_rate_per_episode": 2.0,
+        "max_reject_rate": 0.5,
+        "max_walk_reject_rate": 0.75
+      },
+      "walk_reject_rate": 0.9246666666666666
+    },
     "lane_summary_count": 189,
+    "matched_budget_comparison": {
+      "baseline_budget_value": 4.304,
+      "baseline_method": "global_conformal",
+      "baseline_task_progress_success": 0.462,
+      "baseline_unsafe": 847,
+      "budget_gap": 0.9079999999999995,
+      "budget_type": "fallback_rate_per_episode",
+      "budget_value": 5.212,
+      "casa_task_progress_success": 0.3485,
+      "casa_unsafe": 934,
+      "global_task_progress_success": 0.462,
+      "global_unsafe": 847,
+      "matched": false,
+      "method": "casa_a_per_skill",
+      "note": "Observed-budget diagnostic only; run a threshold sweep to construct a true Pareto matched-intervention frontier.",
+      "relative_tolerance": 0.1,
+      "winner": "global_conformal"
+    },
     "per_skill_decisions": {
       "casa_a_per_skill": {
         "gesture": {
@@ -637,7 +698,119 @@
       "task_progress_ratio": 0.5099
     },
     "raw_decision_row_count": 20000,
-    "raw_episode_row_count": 3173
+    "raw_episode_row_count": 3173,
+    "strict_plan_a_claim": {
+      "blocking_reasons": [
+        "casa_a_per_skill_does_not_outperform_global_conformal",
+        "casa_fallback_rate_exceeds_strict_plan_a_budget",
+        "casa_reject_rate_exceeds_strict_plan_a_budget",
+        "casa_walk_reject_rate_exceeds_strict_plan_a_budget"
+      ],
+      "casa_method": "casa_a_per_skill",
+      "checks": {
+        "all_five_original_methods_present": true,
+        "casa_vs_global_advantage": false,
+        "casa_vs_hard_unsafe_reduction": true,
+        "casa_vs_raw_critic_unsafe_reduction": true,
+        "fallback_rate_budget": false,
+        "matched_budget_comparison_present": true,
+        "original_casa_method": true,
+        "reject_rate_budget": false,
+        "task_success_split_fields_present": true,
+        "walk_reject_rate_budget": false
+      },
+      "expected_methods": [
+        "sonic_only",
+        "hard_contract",
+        "raw_critic_0p5",
+        "global_conformal",
+        "casa_a_per_skill"
+      ],
+      "fallback_reject_budget": {
+        "checks": {
+          "fallback_rate_per_episode_within_budget": false,
+          "reject_rate_within_budget": false,
+          "walk_reject_rate_within_budget": false
+        },
+        "decision_count": 4000,
+        "fallback_count": 2606,
+        "fallback_rate_per_episode": 5.212,
+        "intervention_rate": 0.6515,
+        "labeled_reject_count": 2606,
+        "method": "casa_a_per_skill",
+        "per_skill_fallback_rate": {
+          "gesture": 0.492,
+          "passive": 0.477,
+          "turn": 0.496,
+          "walk": 0.9246666666666666
+        },
+        "per_skill_reject_rate": {
+          "gesture": 0.492,
+          "passive": 0.477,
+          "turn": 0.496,
+          "walk": 0.9246666666666666
+        },
+        "recovery_only_rate": 1.0,
+        "reject_count": 2606,
+        "reject_rate_per_decision": 0.6515,
+        "safe_rejection_count": 1774,
+        "safe_rejection_rate": 0.6807367613200307,
+        "thresholds": {
+          "max_fallback_rate_per_episode": 2.0,
+          "max_reject_rate": 0.5,
+          "max_walk_reject_rate": 0.75
+        },
+        "walk_reject_rate": 0.9246666666666666
+      },
+      "global_advantage_evidence": {
+        "casa_task_progress_success_rate": 0.3485,
+        "global_task_progress_success_rate": 0.462,
+        "task_progress_advantage": -0.11350000000000005,
+        "unsafe_reduction": -0.10271546635182999
+      },
+      "go": false,
+      "matched_budget_comparison": {
+        "baseline_budget_value": 4.304,
+        "baseline_method": "global_conformal",
+        "baseline_task_progress_success": 0.462,
+        "baseline_unsafe": 847,
+        "budget_gap": 0.9079999999999995,
+        "budget_type": "fallback_rate_per_episode",
+        "budget_value": 5.212,
+        "casa_task_progress_success": 0.3485,
+        "casa_unsafe": 934,
+        "global_task_progress_success": 0.462,
+        "global_unsafe": 847,
+        "matched": false,
+        "method": "casa_a_per_skill",
+        "note": "Observed-budget diagnostic only; run a threshold sweep to construct a true Pareto matched-intervention frontier.",
+        "relative_tolerance": 0.1,
+        "winner": "global_conformal"
+      },
+      "method_kind": "original_plan_a",
+      "original_plan_a_methods": [
+        "sonic_only",
+        "hard_contract",
+        "raw_critic_0p5",
+        "global_conformal",
+        "casa_a_per_skill"
+      ],
+      "present_methods": [
+        "casa_a_per_skill",
+        "global_conformal",
+        "hard_contract",
+        "raw_critic_0p5",
+        "sonic_only"
+      ],
+      "status": "STRICT_PLAN_A_NO_GO",
+      "thresholds": {
+        "min_global_task_progress_advantage": 0.1,
+        "min_global_unsafe_reduction": 0.1,
+        "min_hard_unsafe_reduction": 0.2,
+        "min_raw_unsafe_reduction": 0.1
+      },
+      "variant_methods_present": []
+    }
   },
   "episode_count": 2500,
   "expected_episodes": 2500,
@@ -7829,74 +8002,149 @@
   ],
   "method_summary": {
     "casa_a_per_skill": {
+      "candidate_skill_executed_count": 1394,
+      "candidate_skill_executed_rate": 0.3485,
       "completed_count": 500,
+      "decision_count": 4000,
       "episode_count": 500,
       "failed_or_unverified": 0,
       "fallback_count": 2606,
       "fallback_rate_per_episode": 5.212,
+      "fallback_replaced_core_skill_count": 2129,
+      "fallback_replaced_core_skill_rate": 0.53225,
+      "gesture_completion_success_rate": 0.508,
       "mean_completion_time_s": 22.077691814899445,
       "method": "casa_a_per_skill",
       "method_display": "SONIC + CASA-A (per-skill conformal)",
+      "passive_completion_success_rate": 0.523,
+      "safe_completion_count": 305,
+      "safe_completion_rate": 0.61,
+      "semantic_task_success_rate": 0.3485,
+      "task_progress_decision_count": 4000,
+      "task_progress_success_count": 1394,
+      "task_progress_success_rate": 0.3485,
       "task_success_count": 305,
       "task_success_rate": 0.61,
+      "turn_target_success_rate": 0.504,
       "unsafe_invocation_count": 934,
-      "unsafe_invocation_rate_per_episode": 1.868
+      "unsafe_invocation_rate_per_episode": 1.868,
+      "walk_progress_success_rate": 0.07533333333333334
     },
     "global_conformal": {
+      "candidate_skill_executed_count": 1848,
+      "candidate_skill_executed_rate": 0.462,
       "completed_count": 500,
+      "decision_count": 4000,
       "episode_count": 500,
       "failed_or_unverified": 0,
       "fallback_count": 2152,
       "fallback_rate_per_episode": 4.304,
+      "fallback_replaced_core_skill_count": 1906,
+      "fallback_replaced_core_skill_rate": 0.4765,
+      "gesture_completion_success_rate": 0.732,
       "mean_completion_time_s": 21.818568910598756,
       "method": "global_conformal",
       "method_display": "SONIC + Global Conformal",
+      "passive_completion_success_rate": 0.754,
+      "safe_completion_count": 328,
+      "safe_completion_rate": 0.656,
+      "semantic_task_success_rate": 0.462,
+      "task_progress_decision_count": 4000,
+      "task_progress_success_count": 1848,
+      "task_progress_success_rate": 0.462,
       "task_success_count": 328,
       "task_success_rate": 0.656,
+      "turn_target_success_rate": 0.667,
       "unsafe_invocation_count": 847,
-      "unsafe_invocation_rate_per_episode": 1.694
+      "unsafe_invocation_rate_per_episode": 1.694,
+      "walk_progress_success_rate": 0.04066666666666666
     },
     "hard_contract": {
+      "candidate_skill_executed_count": 889,
+      "candidate_skill_executed_rate": 0.22225,
       "completed_count": 500,
+      "decision_count": 4000,
       "episode_count": 500,
       "failed_or_unverified": 0,
       "fallback_count": 3111,
       "fallback_rate_per_episode": 6.222,
+      "fallback_replaced_core_skill_count": 2215,
+      "fallback_replaced_core_skill_rate": 0.55375,
+      "gesture_completion_success_rate": 0.142,
       "mean_completion_time_s": 21.371739627361297,
       "method": "hard_contract",
       "method_display": "SONIC + Hard Contract",
+      "passive_completion_success_rate": 0.104,
+      "safe_completion_count": 11,
+      "safe_completion_rate": 0.022,
+      "semantic_task_success_rate": 0.22225,
+      "task_progress_decision_count": 4000,
+      "task_progress_success_count": 889,
+      "task_progress_success_rate": 0.22225,
       "task_success_count": 11,
       "task_success_rate": 0.022,
+      "turn_target_success_rate": 0.116,
       "unsafe_invocation_count": 3643,
-      "unsafe_invocation_rate_per_episode": 7.286
+      "unsafe_invocation_rate_per_episode": 7.286,
+      "walk_progress_success_rate": 0.39866666666666667
     },
     "raw_critic_0p5": {
+      "candidate_skill_executed_count": 2067,
+      "candidate_skill_executed_rate": 0.51675,
       "completed_count": 500,
+      "decision_count": 4000,
       "episode_count": 500,
       "failed_or_unverified": 0,
       "fallback_count": 1933,
       "fallback_rate_per_episode": 3.866,
+      "fallback_replaced_core_skill_count": 1667,
+      "fallback_replaced_core_skill_rate": 0.41675,
+      "gesture_completion_success_rate": 0.826,
       "mean_completion_time_s": 23.301571413517,
       "method": "raw_critic_0p5",
       "method_display": "SONIC + Raw Critic (0.5)",
+      "passive_completion_success_rate": 0.734,
+      "safe_completion_count": 229,
+      "safe_completion_rate": 0.458,
+      "semantic_task_success_rate": 0.51675,
+      "task_progress_decision_count": 4000,
+      "task_progress_success_count": 2067,
+      "task_progress_success_rate": 0.51675,
       "task_success_count": 229,
       "task_success_rate": 0.458,
+      "turn_target_success_rate": 0.714,
       "unsafe_invocation_count": 1223,
-      "unsafe_invocation_rate_per_episode": 2.446
+      "unsafe_invocation_rate_per_episode": 2.446,
+      "walk_progress_success_rate": 0.13733333333333334
     },
     "sonic_only": {
+      "candidate_skill_executed_count": 4000,
+      "candidate_skill_executed_rate": 1.0,
       "completed_count": 500,
+      "decision_count": 4000,
       "episode_count": 500,
       "failed_or_unverified": 0,
       "fallback_count": 0,
       "fallback_rate_per_episode": 0.0,
+      "fallback_replaced_core_skill_count": 0,
+      "fallback_replaced_core_skill_rate": 0.0,
+      "gesture_completion_success_rate": 1.0,
       "mean_completion_time_s": 29.342801418304443,
       "method": "sonic_only",
       "method_display": "SONIC-only",
+      "passive_completion_success_rate": 1.0,
+      "safe_completion_count": 13,
+      "safe_completion_rate": 0.026,
+      "semantic_task_success_rate": 1.0,
+      "task_progress_decision_count": 4000,
+      "task_progress_success_count": 4000,
+      "task_progress_success_rate": 1.0,
       "task_success_count": 13,
       "task_success_rate": 0.026,
+      "turn_target_success_rate": 1.0,
       "unsafe_invocation_count": 3559,
-      "unsafe_invocation_rate_per_episode": 7.118
+      "unsafe_invocation_rate_per_episode": 7.118,
+      "walk_progress_success_rate": 1.0
     }
   },
   "methods": [
@@ -7910,9 +8158,9 @@
   "raw_decision_row_count": 20000,
   "raw_episode_row_count": 3173,
   "status": "PASS_STRICT_ONLINE",
+  "strict_plan_a_claim_enabled": false,
   "warning_reasons": [
     "sonic_task_success_rate_low_relative_drop_check_is_unstable",
-    "hard_contract_intervenes_more_than_casa_diagnostic",
-    "raw_lane_episode_duplicates_were_deduped"
+    "hard_contract_intervenes_more_than_casa_diagnostic"
   ]
 }

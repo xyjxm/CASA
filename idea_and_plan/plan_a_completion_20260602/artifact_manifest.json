@@ -1,0 +1,132 @@
+{
+  "artifact_set": "plan_a_completion_20260602",
+  "branch": "issue-7-domain-pool-fix-rebased",
+  "committed_artifacts": [
+    {
+      "path": "README.md",
+      "sha256": "a72a119f68221d4aad62ac006d354d053416a8a13f4ff10cff98a652c5d7c50c"
+    },
+    {
+      "path": "plan_a_strict_completion_audit_20260602.json",
+      "sha256": "afa85df0d5685c747ac9635cbdb13c68d1e69cad7f11cd33598206f5786b73b3"
+    },
+    {
+      "path": "audit/online_acceptance_audit.json",
+      "sha256": "60660158201151e9bfc980f9284829b80d7b4eba0f884b5551f3fcd4acd79637"
+    },
+    {
+      "path": "audit/online_go_no_go.json",
+      "sha256": "5d28b9799dfb9b1f15c9e75fddc65796b820c341ebcbb32bf58bd25e55ef4482"
+    },
+    {
+      "path": "audit/online_report.md",
+      "sha256": "2421f5491bcf90efa57efc45a8df9727c8ee2816ce6771bd4640dea443ead1f5"
+    },
+    {
+      "path": "audit/method_summary.json",
+      "sha256": "cc5ef690782cb6a0ad2b6113f7ecf0f074047687d8c94a1d8c2ff500232753dc"
+    },
+    {
+      "path": "audit/method_summary.csv",
+      "sha256": "7e1c571cf69ed78f3cdf9b68d4106d628a8a1ea0a7251f6f64656e60c0648d39"
+    },
+    {
+      "path": "audit/online_episode_results.csv",
+      "sha256": "d66ce326b918ab8cd8eb971fe75ab9f01dbe802ec032fe08211db84bfd7367db"
+    },
+    {
+      "path": "audit/gate_decisions.csv",
+      "sha256": "22b34e1c71b83dc898f7543e07c3d79fd5f724c279224b90f0c5ad76b4298ea2"
+    },
+    {
+      "path": "scripts/plan_a_strict_completion_audit_20260602.py",
+      "sha256": "c50d79c9f2d267ae9f1c66d4cf978d642069c4bfc4910d69bb893c689704d0de"
+    },
+    {
+      "path": "scripts/phase5_online_main_watchdog_20260602.py",
+      "sha256": "012c20c5b869a0850ac796f613f90fe65e4d5b76af62e2b303ce5bddfd13943a"
+    },
+    {
+      "path": "scripts/phase5_online_sidecar_supervisor_20260602.py",
+      "sha256": "b9fc3ca358edb2c35e066474626caa5346906c21171593cccf881c5188c5abc3"
+    }
+  ],
+  "default_audit_go": true,
+  "default_audit_status": "PASS_STRICT_ONLINE",
+  "episodes_per_seed": 100,
+  "evidence_commit": "5e74d1b82aa3661d6c73ce86b06c4d71b53647a5",
+  "expected_episodes": 2500,
+  "expected_methods": [
+    "sonic_only",
+    "hard_contract",
+    "raw_critic_0p5",
+    "global_conformal",
+    "casa_a_per_skill"
+  ],
+  "expected_seeds": [
+    1234,
+    1235,
+    1236,
+    1237,
+    1238
+  ],
+  "large_artifact_policy": "Merged online CSVs are committed here; raw source lane directories, model checkpoints, and thresholds are referenced by path and sha256.",
+  "manifest_note": "artifact_manifest.json and sha256sums.txt are not included in sha256sums.txt to avoid self-referential hashes.",
+  "online_root": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase5_conformal_baselines_20260522/online_real_main_hc_threshold_2500_20260602",
+  "phase4_root": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase4_dataset_v1_strict_50k_20260522",
+  "phase5_root": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase5_conformal_baselines_20260522/hc_filtered_online_calibration_20260601",
+  "promotion_tag": "plan-a-completion-20260602-strict-claim-audit",
+  "raw_critic_checkpoint": {
+    "path": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase4_dataset_v1_strict_50k_20260522/raw_critic/raw_critic.pt",
+    "sha256": "419118d225b554e25aaa0d679fb4ab8feafeec3e98de27af5d18511f3efcbfdc"
+  },
+  "repository": "git@github.com:xyjxm/CASA.git",
+  "reproducibility_files": [
+    {
+      "path": "run_command.sh",
+      "sha256": "980e85491477b15fd44debf3724e37f7609982845742656432ca71bd943db65c"
+    },
+    {
+      "path": "git_commit.txt",
+      "sha256": "6ae73f8f822a8574a5a1c40d9d905eba6a0182d5a2ad344fca6040efdef86d42"
+    },
+    {
+      "path": "expected_methods.txt",
+      "sha256": "fe1bf4d1e5303bc14104dbb25234f6b7ecc567a605d51f5ad902cbe63b976fe8"
+    },
+    {
+      "path": "expected_seeds.txt",
+      "sha256": "6f301d4e1c7f18d6c0deb14dd530b6c43991a0603337871222d01dbda8fa7dc0"
+    },
+    {
+      "path": "thresholds_sha256.txt",
+      "sha256": "6c76a0240a858e72f087535db386906c2f2c3447c6212a694059946bb7b19063"
+    },
+    {
+      "path": "raw_critic_checkpoint_sha256.txt",
+      "sha256": "0a7a2b08786ee4c805c810ce61873d60878b2765a43a771f34bdbc6a9d63cd64"
+    },
+    {
+      "path": "audit/online_episode_results.csv.sha256",
+      "sha256": "ffc847d3930a40b5e332c5136cb3996e2eae32938d692a9682085f1b3e69d179"
+    },
+    {
+      "path": "audit/gate_decisions.csv.sha256",
+      "sha256": "37c771790fed9ab2cca5e62634c7d74b18c640c28de2cb47be652169c2d0fb9c"
+    }
+  ],
+  "schema_version": 2,
+  "skills_per_episode": 8,
+  "strict_plan_a_claim_blockers": [
+    "casa_a_per_skill_does_not_outperform_global_conformal",
+    "casa_fallback_rate_exceeds_strict_plan_a_budget",
+    "casa_reject_rate_exceeds_strict_plan_a_budget",
+    "casa_walk_reject_rate_exceeds_strict_plan_a_budget"
+  ],
+  "strict_plan_a_claim_expected_status": "STRICT_PLAN_A_NO_GO",
+  "strict_plan_a_claim_go": false,
+  "thresholds": {
+    "path": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase5_conformal_baselines_20260522/hc_filtered_online_calibration_20260601/conformal_thresholds.json",
+    "sha256": "4d661359589ae4ff11765f81e0e584b9efc8f0eaf8e92b2c28ff6d45e788904c"
+  }
+}
