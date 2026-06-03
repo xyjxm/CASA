@@ -1,0 +1,248 @@
+{
+  "artifact": "phase5_online_five_baseline_demo",
+  "command": [
+    "/mnt/data/students/lph/miniconda3/bin/python",
+    "gear_sonic/scripts/casa_visualize_phase5_online.py",
+    "--artifact-dir",
+    "idea_and_plan/plan_a_completion_20260602",
+    "--audit-dir",
+    "idea_and_plan/plan_a_completion_20260602/audit",
+    "--output-root",
+    "/mnt/data/students/lph/recording",
+    "--overwrite",
+    "--methods",
+    "sonic_only,hard_contract,raw_critic_0p5,global_conformal,casa_a_per_skill",
+    "--casa-method",
+    "casa_a_per_skill",
+    "--strict-five-baseline",
+    "--video-mode",
+    "auto",
+    "--videos-dir",
+    "/mnt/data/students/lph/recording",
+    "--write-markdown",
+    "--write-html",
+    "--fail-on-metric-mismatch",
+    "--fps",
+    "20"
+  ],
+  "command_string": "/mnt/data/students/lph/miniconda3/bin/python gear_sonic/scripts/casa_visualize_phase5_online.py --artifact-dir idea_and_plan/plan_a_completion_20260602 --audit-dir idea_and_plan/plan_a_completion_20260602/audit --output-root /mnt/data/students/lph/recording --overwrite --methods sonic_only,hard_contract,raw_critic_0p5,global_conformal,casa_a_per_skill --casa-method casa_a_per_skill --strict-five-baseline --video-mode auto --videos-dir /mnt/data/students/lph/recording --write-markdown --write-html --fail-on-metric-mismatch --fps 20",
+  "generated_files": [
+    {
+      "bytes": 505,
+      "path": "README.md",
+      "sha256": "f7a60932559a491c8cfbb696d5333dbe985a60e7c3769a10e1c3e6d8386dc363"
+    },
+    {
+      "bytes": 15575,
+      "path": "data/metric_consistency_check.json",
+      "sha256": "74afeda5279ec7621c454667ad078702a2fdcb6cbe095357741d2f94ac2b13a1"
+    },
+    {
+      "bytes": 4004,
+      "path": "data/selected_episodes.csv",
+      "sha256": "d5b162ff7ec304ea751aa8524101994cf97b962ddf59899b70abdc43ae054cb1"
+    },
+    {
+      "bytes": 3218,
+      "path": "data/selected_episodes_manifest.json",
+      "sha256": "f9ca74fd76786b669de84eb8917bee7b28c492fca89344f593ef3b6bc136bc2b"
+    },
+    {
+      "bytes": 20450,
+      "path": "data/visualization_manifest.json",
+      "sha256": "01703fd1a6e8bca7880c8c2bd018ac2b8e205fb5d9920369229d8daf92ed6e3c"
+    },
+    {
+      "bytes": 23463,
+      "path": "data/visualization_metrics.json",
+      "sha256": "5e3e8b17520cf3c46bd593a9fe1dfe9f04d0a8046e06e143d61e801eadad6f62"
+    },
+    {
+      "bytes": 50395,
+      "path": "figures/episode_method_outcome_heatmap.png",
+      "sha256": "379723805e44470d783019f531e6e6d4cd1aaf07f0ffe7a5260a81a798fb7068"
+    },
+    {
+      "bytes": 36613,
+      "path": "figures/five_baseline_fallback_rates.png",
+      "sha256": "c9e840429920c6b9dc81d23261d21d7c074098628223873a29784ffea7d4afc1"
+    },
+    {
+      "bytes": 41362,
+      "path": "figures/five_baseline_reject_rates.png",
+      "sha256": "317f9b41039acca5977a225879bc41336e20437e6b3c5c5fa7f171a7d7644e1a"
+    },
+    {
+      "bytes": 39235,
+      "path": "figures/five_baseline_task_progress_rates.png",
+      "sha256": "1181f9907318b5cd2950260df00383f46603323b4782080a1f51a7a4c1eea00e"
+    },
+    {
+      "bytes": 61462,
+      "path": "figures/five_baseline_task_success_rates.png",
+      "sha256": "b4cd74b3ff7bc02d120be4e3c67055d3999ca548a319016466660df9a49033ee"
+    },
+    {
+      "bytes": 49771,
+      "path": "figures/five_baseline_unsafe_counts.png",
+      "sha256": "3648c2a07baa2027764dafb6295b8c5c186223457c996c54a058248314885ecd"
+    },
+    {
+      "bytes": 65173,
+      "path": "figures/per_skill_fallback_reject_heatmap.png",
+      "sha256": "cee0b1c80643b4c9f671043b7863d3cbcbbed6d0d735d63e863240da12404add"
+    },
+    {
+      "bytes": 53872,
+      "path": "figures/per_skill_unsafe_heatmap.png",
+      "sha256": "70a4378b67111883b5380c5c0ab6ae0f514c256ada50d0281f15324af4f8dd42"
+    },
+    {
+      "bytes": 64253,
+      "path": "figures/selected_episode_gate_decision_heatmap_case1_seed1234_ep0001.png",
+      "sha256": "d17405e9c2edf2ea7b1ee2e45f1c2acec201e4f83857394f485acd663c957f63"
+    },
+    {
+      "bytes": 64868,
+      "path": "figures/selected_episode_gate_decision_heatmap_case2_seed1234_ep0076.png",
+      "sha256": "4d7beda1597269a41b72d058b16eb5db8dbb767da7e17d1c26ecec1ad34bb665"
+    },
+    {
+      "bytes": 63762,
+      "path": "figures/selected_episode_gate_decision_heatmap_case3_seed1235_ep0088.png",
+      "sha256": "c993576dfe53aa70a18c8fca100ad6265a3a9d4b815f50b53d3fb47feb8d89cc"
+    },
+    {
+      "bytes": 64139,
+      "path": "figures/selected_episode_gate_decision_heatmap_case4_seed1234_ep0003.png",
+      "sha256": "e106649df4e522995f2e1efdad5bbe40b33d670e15fbea73903bd0b4f2357ee3"
+    },
+    {
+      "bytes": 64466,
+      "path": "figures/selected_episode_gate_decision_heatmap_case5_seed1234_ep0002.png",
+      "sha256": "0730ee2b61d9c88dcad68d3148e186958a2ce8054aeb8973142744e30138f09b"
+    },
+    {
+      "bytes": 118807,
+      "path": "figures/selected_episode_gate_risk_timeline_case1_seed1234_ep0001.png",
+      "sha256": "c25e21011de3740c218b00729872b949e6f2fe7d9c7525032a90368d1bfa8798"
+    },
+    {
+      "bytes": 169440,
+      "path": "figures/selected_episode_gate_risk_timeline_case2_seed1234_ep0076.png",
+      "sha256": "8d01e7c2f4f57db8414db880e5ffe5b3be3af894230cab732c9f8cb334a6c32e"
+    },
+    {
+      "bytes": 116354,
+      "path": "figures/selected_episode_gate_risk_timeline_case3_seed1235_ep0088.png",
+      "sha256": "600f88a7ba431e031db1dfc4d59a52604ec9d0ea4ffea1ef65df1956c935ead6"
+    },
+    {
+      "bytes": 101195,
+      "path": "figures/selected_episode_gate_risk_timeline_case4_seed1234_ep0003.png",
+      "sha256": "1063273f4c1d1e77a61ea5ce47dc1f45e1bd1caa55f57a848e12b2f529a1f67c"
+    },
+    {
+      "bytes": 113868,
+      "path": "figures/selected_episode_gate_risk_timeline_case5_seed1234_ep0002.png",
+      "sha256": "780b06b6678cc9b8ae355c67b4fd99c71a6fc9f041665fdfb2fb73c75c4689d3"
+    },
+    {
+      "bytes": 106651,
+      "path": "figures/selected_episode_timeline_case1_seed1234_ep0001.png",
+      "sha256": "92098c9761fdc9db0de8aafdf377ba4a37864bfc756a14d25678ff88a202e7be"
+    },
+    {
+      "bytes": 104157,
+      "path": "figures/selected_episode_timeline_case2_seed1234_ep0076.png",
+      "sha256": "d10e995a046f23260fa14935d418a86d8a237af4a1fc386c79c8533d24eef0de"
+    },
+    {
+      "bytes": 103763,
+      "path": "figures/selected_episode_timeline_case3_seed1235_ep0088.png",
+      "sha256": "361d12d8710bb4a9ef3eb1776a2cb4844d2e27c9b022b550af5720ac763d5344"
+    },
+    {
+      "bytes": 111288,
+      "path": "figures/selected_episode_timeline_case4_seed1234_ep0003.png",
+      "sha256": "0fde6cc6f92a8eeb848760453d29877944c0aa19707b6f16214da9be11326c47"
+    },
+    {
+      "bytes": 103928,
+      "path": "figures/selected_episode_timeline_case5_seed1234_ep0002.png",
+      "sha256": "83a45706c74b1cfede18e185d500380de0c423b85adbf5bdb7abec7d32da3416"
+    },
+    {
+      "bytes": 44204,
+      "path": "figures/unsafe_vs_task_success_scatter.png",
+      "sha256": "50daa94c007765b01240255e724e9bbe9c93f57a1aa0fbf91575cde4f59e5bac"
+    },
+    {
+      "bytes": 4946,
+      "path": "phase5_online_visualization_report.html",
+      "sha256": "0d8b9d013d811f8e2e6f885942289d481f68047d5b6c92f3c8dc1785d63e0fba"
+    },
+    {
+      "bytes": 7082,
+      "path": "phase5_online_visualization_report.md",
+      "sha256": "ca78827db30ed5f5d27c92fdcd281c432cc8465890145762dfab60223709a19f"
+    },
+    {
+      "bytes": 23985,
+      "path": "videos/selected_episode_metric_timeline_case1_seed1234_ep0001.mp4",
+      "sha256": "eab6d3b2e12be240319c152ce471b79af139885ec3d8f62c00ff8f80e8898eb5"
+    },
+    {
+      "bytes": 23507,
+      "path": "videos/selected_episode_metric_timeline_case2_seed1234_ep0076.mp4",
+      "sha256": "1e41870e573a8375ce921590ed175185aafe71371a94fb42553688c5d0381ddc"
+    },
+    {
+      "bytes": 24124,
+      "path": "videos/selected_episode_metric_timeline_case3_seed1235_ep0088.mp4",
+      "sha256": "239054fe04b3cd46ee7e7a9cfa9ffe57e5fe2ba745eaed49448b0bec9d3cb513"
+    },
+    {
+      "bytes": 24611,
+      "path": "videos/selected_episode_metric_timeline_case4_seed1234_ep0003.mp4",
+      "sha256": "4d1e6031034dfd098b3673140a7586bbc5a9b12abbaf4ae02402d0e7f0d2b707"
+    },
+    {
+      "bytes": 23793,
+      "path": "videos/selected_episode_metric_timeline_case5_seed1234_ep0002.mp4",
+      "sha256": "46e2fd877360bb176410fbf67ff2bbed7ce7c04ee9949c5d9d66814fc9f2c223"
+    },
+    {
+      "bytes": 689652,
+      "path": "videos/selected_episode_side_by_side_case1_seed1234_ep0001.mp4",
+      "sha256": "055af22503d70de4ead133d8af721197f1ce096bc9025f4c9f3889fcf479da70"
+    },
+    {
+      "bytes": 775708,
+      "path": "videos/selected_episode_side_by_side_case2_seed1234_ep0076.mp4",
+      "sha256": "8115447d8a5603328d95332130c9acbb8dcf5c0f3bfd4a8f9359c3d149705cd1"
+    },
+    {
+      "bytes": 930671,
+      "path": "videos/selected_episode_side_by_side_case3_seed1235_ep0088.mp4",
+      "sha256": "f0f4fb43a0de8ef938ddd8107a972c5d1baab5311b5fb79afd5dc574a1e2ed19"
+    },
+    {
+      "bytes": 1562358,
+      "path": "videos/selected_episode_side_by_side_case4_seed1234_ep0003.mp4",
+      "sha256": "0227210b5af8649f608c779e46902634d45b6904cd860788241f7f5d940ce9fb"
+    },
+    {
+      "bytes": 1269427,
+      "path": "videos/selected_episode_side_by_side_case5_seed1234_ep0002.mp4",
+      "sha256": "7791d0f7f2ffaac9b8630cd92df714d0ea6eab61c4029764c46aabe1fceaf352"
+    }
+  ],
+  "large_artifact_policy": "Generated recording outputs are written outside Git and are not committed.",
+  "output_path": "/mnt/data/students/lph/recording/phase5_online_five_baseline_demo_20260602",
+  "run_name": "phase5_online_five_baseline_demo_20260602",
+  "schema_version": 1,
+  "source_artifact_dir": "/tmp/casa_upload_worktree/idea_and_plan/plan_a_completion_20260602",
+  "source_audit_dir": "/tmp/casa_upload_worktree/idea_and_plan/plan_a_completion_20260602/audit",
+  "timestamp": "2026-06-03T11:01:12"
+}

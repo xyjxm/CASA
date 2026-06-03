@@ -131,6 +131,69 @@ def test_bar_chart_outputs_created(tmp_path: Path) -> None:
     assert (output_dir / "figures" / "five_baseline_fallback_rates.png").exists()
 
 
+def test_cli_output_root_creates_run_directory_and_manifest(tmp_path: Path) -> None:
+    artifact_dir, audit_dir = _write_artifacts(tmp_path)
+    output_root = tmp_path / "recording"
+    run_name = "phase5_online_five_baseline_demo_20260602"
+    repo_manifest = tmp_path / "repo_manifest.json"
+    cmd = [
+        sys.executable,
+        "gear_sonic/scripts/casa_visualize_phase5_online.py",
+        "--artifact-dir",
+        str(artifact_dir),
+        "--audit-dir",
+        str(audit_dir),
+        "--output-root",
+        str(output_root),
+        "--run-name",
+        run_name,
+        "--repo-manifest",
+        str(repo_manifest),
+        "--methods",
+        ",".join(METHOD_ORDER),
+        "--casa-method",
+        "casa_a_per_skill",
+        "--max-example-episodes",
+        "1",
+        "--video-mode",
+        "timeline-only",
+        "--write-markdown",
+        "--fail-on-metric-mismatch",
+        "--strict-five-baseline",
+        "--fps",
+        "5",
+    ]
+
+    completed = subprocess.run(
+        cmd,
+        check=False,
+        cwd=Path(__file__).resolve().parents[3],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    output_dir = output_root / run_name
+    assert completed.returncode == 0, completed.stderr
+    assert "Phase 5 online visualization package written to:" in completed.stdout
+    assert (output_dir / "data" / "selected_episodes_manifest.json").exists()
+    assert list((output_dir / "videos").glob("selected_episode_metric_timeline_case1_seed*_ep*.mp4"))
+    manifest = json.loads(repo_manifest.read_text())
+    assert manifest["output_path"] == str(output_dir.resolve())
+    assert any(item["path"] == "data/visualization_manifest.json" for item in manifest["generated_files"])
+
+    repeated = subprocess.run(
+        cmd,
+        check=False,
+        cwd=Path(__file__).resolve().parents[3],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert repeated.returncode != 0
+    assert "Pass --overwrite" in repeated.stderr
+
+
 def test_heatmap_outputs_created(tmp_path: Path) -> None:
     output_dir = _run_package(tmp_path)
 

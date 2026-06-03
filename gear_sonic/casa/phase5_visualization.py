@@ -556,6 +556,8 @@ def select_representative_episodes(
 def write_selected_episodes_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
+        "case_id",
+        "case_label",
         "seed",
         "episode_index",
         "selection_reason",
@@ -573,6 +575,63 @@ def write_selected_episodes_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer = csv.DictWriter(file, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
+
+
+def annotate_selected_cases(rows: list[dict[str, Any]]) -> None:
+    case_id = 1
+    for row in rows:
+        if row.get("seed") == "":
+            row["case_id"] = ""
+            row["case_label"] = ""
+            continue
+        seed = _int(row.get("seed"))
+        episode = _int(row.get("episode_index"))
+        row["case_id"] = case_id
+        row["case_label"] = f"case{case_id}_seed{seed}_ep{episode:04d}"
+        case_id += 1
+
+
+def build_selected_episodes_manifest(
+    *,
+    selected_episodes: list[dict[str, Any]],
+    figure_manifest: list[dict[str, Any]],
+    video_manifest: list[dict[str, Any]],
+) -> dict[str, Any]:
+    cases = []
+    for selected in selected_episodes:
+        if selected.get("seed") == "":
+            continue
+        seed = _int(selected.get("seed"))
+        episode = _int(selected.get("episode_index"))
+        cases.append(
+            {
+                "case_id": selected.get("case_id", ""),
+                "case_label": selected.get("case_label", ""),
+                "seed": seed,
+                "episode_index": episode,
+                "selection_reason": selected.get("selection_reason", ""),
+                "figures": [
+                    item.get("path")
+                    for item in figure_manifest
+                    if item.get("seed") == seed and item.get("episode_index") == episode
+                ],
+                "videos": [
+                    item.get("path")
+                    for item in video_manifest
+                    if item.get("seed") == seed and item.get("episode_index") == episode and item.get("path")
+                ],
+            }
+        )
+    return {
+        "schema_version": 1,
+        "case_count": len(cases),
+        "cases": cases,
+        "missing_requested_cases": [
+            {"selection_reason": row.get("selection_reason"), "message": row.get("methods_available")}
+            for row in selected_episodes
+            if row.get("seed") == ""
+        ],
+    }
 
 
 def run_visualization_package(
@@ -622,6 +681,7 @@ def run_visualization_package(
         casa_method=casa_method,
         max_examples=max_example_episodes,
     )
+    annotate_selected_cases(selected)
     write_selected_episodes_csv(data_dir / "selected_episodes.csv", selected)
 
     figure_manifest = write_all_figures(
@@ -643,6 +703,12 @@ def run_visualization_package(
         source_videos_dir=videos_dir,
         fps=fps,
     )
+    selected_manifest = build_selected_episodes_manifest(
+        selected_episodes=selected,
+        figure_manifest=figure_manifest,
+        video_manifest=video_manifest,
+    )
+    _write_json(data_dir / "selected_episodes_manifest.json", selected_manifest)
     manifest = {
         "artifact_dir": str(inputs.artifact_dir),
         "audit_dir": str(inputs.audit_dir),
@@ -653,6 +719,7 @@ def run_visualization_package(
         "frames_dir": str(frames_dir) if frames_dir else None,
         "videos_dir": str(videos_dir) if videos_dir else None,
         "metric_consistency_status": consistency["status"],
+        "selected_episodes_manifest": "data/selected_episodes_manifest.json",
         "figures": figure_manifest,
         "videos": video_manifest,
         "sha256_checks": inputs.sha256_checks,
@@ -726,9 +793,10 @@ def write_all_figures(
     for selected in valid_selected:
         seed = _int(selected["seed"])
         episode = _int(selected["episode_index"])
+        case_label = _case_label(selected, seed, episode)
         figures.append(
             write_episode_timeline(
-                figures_dir / f"selected_episode_timeline_{seed}_{episode}.png",
+                figures_dir / f"selected_episode_timeline_{case_label}.png",
                 seed,
                 episode,
                 episode_rows,
@@ -738,7 +806,7 @@ def write_all_figures(
         )
         figures.append(
             write_gate_risk_timeline(
-                figures_dir / f"selected_episode_gate_risk_timeline_{seed}_{episode}.png",
+                figures_dir / f"selected_episode_gate_risk_timeline_{case_label}.png",
                 seed,
                 episode,
                 decision_rows,
@@ -747,7 +815,7 @@ def write_all_figures(
         )
         figures.append(
             write_gate_decision_heatmap(
-                figures_dir / f"selected_episode_gate_decision_heatmap_{seed}_{episode}.png",
+                figures_dir / f"selected_episode_gate_decision_heatmap_{case_label}.png",
                 seed,
                 episode,
                 decision_rows,
@@ -774,14 +842,17 @@ def write_video_evidence(
     for selected in valid_selected:
         seed = _int(selected["seed"])
         episode = _int(selected["episode_index"])
+        case_label = _case_label(selected, seed, episode)
         real_matches = []
         if video_mode in {"auto", "real"} and source_videos_dir:
             real_matches = discover_real_videos(source_videos_dir, methods, seed, episode)
         if real_matches:
-            side_by_side = videos_dir / f"selected_episode_side_by_side_{seed}_{episode}.mp4"
+            side_by_side = videos_dir / f"selected_episode_side_by_side_{case_label}.mp4"
             real_status = _write_real_video_side_by_side(real_matches, side_by_side, fps=fps)
             manifest.append(
                 {
+                    "case_id": selected.get("case_id", ""),
+                    "case_label": case_label,
                     "seed": seed,
                     "episode_index": episode,
                     "type": "real_video_side_by_side",
@@ -795,6 +866,8 @@ def write_video_evidence(
         if video_mode == "real" and not real_matches:
             manifest.append(
                 {
+                    "case_id": selected.get("case_id", ""),
+                    "case_label": case_label,
                     "seed": seed,
                     "episode_index": episode,
                     "type": "real_video_side_by_side",
@@ -803,7 +876,7 @@ def write_video_evidence(
                     "note": "No simulator recording was found; no fake side-by-side video was generated.",
                 }
             )
-        metric_path = videos_dir / f"selected_episode_metric_timeline_{seed}_{episode}.mp4"
+        metric_path = videos_dir / f"selected_episode_metric_timeline_{case_label}.mp4"
         animation_status = write_metric_timeline_animation(
             metric_path,
             seed,
@@ -815,6 +888,8 @@ def write_video_evidence(
         )
         manifest.append(
             {
+                "case_id": selected.get("case_id", ""),
+                "case_label": case_label,
                 "seed": seed,
                 "episode_index": episode,
                 "type": "metric_timeline_animation",
@@ -845,12 +920,14 @@ def discover_real_videos(source_dir: Path, methods: list[str], seed: int, episod
     matches = []
     episode_tokens = {
         f"episode_{episode:04d}",
+        f"episode_{episode:03d}",
         f"ep_{episode:03d}",
+        f"ep{episode:04d}",
+        f"ep{episode:03d}",
         f"episode_{episode}",
         f"ep_{episode}",
-        str(episode),
     }
-    seed_tokens = {f"seed_{seed}", str(seed)}
+    seed_tokens = {f"seed_{seed}", f"seed{seed}"}
     for method in methods:
         method_files = []
         for path in files:
@@ -1231,9 +1308,11 @@ def write_markdown_report(
             continue
         seed = selected["seed"]
         episode = selected["episode_index"]
-        lines.append(f"### seed={seed}, episode={episode}: `{selected['selection_reason']}`")
-        lines.append(f"![timeline](figures/selected_episode_timeline_{seed}_{episode}.png)")
-        lines.append(f"![risk timeline](figures/selected_episode_gate_risk_timeline_{seed}_{episode}.png)")
+        case_label = _case_label(selected, _int(seed), _int(episode))
+        case_title = f"{case_label}: seed={seed}, episode={episode}"
+        lines.append(f"### {case_title}: `{selected['selection_reason']}`")
+        lines.append(f"![timeline](figures/selected_episode_timeline_{case_label}.png)")
+        lines.append(f"![risk timeline](figures/selected_episode_gate_risk_timeline_{case_label}.png)")
     lines.extend(["", "## Video / Animation Evidence", ""])
     for item in video_manifest:
         if item.get("type") == "metric_timeline_animation":
@@ -1319,9 +1398,10 @@ def write_html_report(
         seed = selected["seed"]
         episode = selected["episode_index"]
         reason = html.escape(str(selected["selection_reason"]))
-        parts.append(f"<h3>seed={seed}, episode={episode}: {reason}</h3>")
-        parts.append(f"<img src='figures/selected_episode_timeline_{seed}_{episode}.png'>")
-        parts.append(f"<img src='figures/selected_episode_gate_risk_timeline_{seed}_{episode}.png'>")
+        case_label = _case_label(selected, _int(seed), _int(episode))
+        parts.append(f"<h3>{html.escape(case_label)}: seed={seed}, episode={episode}: {reason}</h3>")
+        parts.append(f"<img src='figures/selected_episode_timeline_{case_label}.png'>")
+        parts.append(f"<img src='figures/selected_episode_gate_risk_timeline_{case_label}.png'>")
     parts.append("<h2>Video / Animation Evidence</h2><ul>")
     for item in video_manifest:
         if item.get("path"):
@@ -1351,9 +1431,9 @@ def write_output_readme(output_dir: Path, *, write_html: bool) -> None:
         "# Phase 5 Online Visualization Outputs",
         "",
         "- `phase5_online_visualization_report.md`: markdown visualization report.",
-        "- `figures/`: five-baseline charts, heatmaps, and selected episode timelines.",
-        "- `videos/`: metric timeline animations or real-video side-by-side outputs when real inputs exist.",
-        "- `data/`: selected episodes, visualization metrics, consistency checks, and manifest.",
+        "- `figures/`: five-baseline charts, heatmaps, and case-numbered selected episode timelines.",
+        "- `videos/`: case-numbered metric timeline animations or real-video side-by-side outputs when real inputs exist.",
+        "- `data/`: selected episodes, case manifest, visualization metrics, consistency checks, and manifest.",
     ]
     if write_html:
         lines.append("- `phase5_online_visualization_report.html`: static dashboard using relative links.")
@@ -1616,6 +1696,16 @@ def _write_real_video_side_by_side(
     if completed.returncode != 0:
         return {"created": False, "reason": "ffmpeg_failed", "stderr": completed.stderr[-1000:]}
     return {"created": True, "reason": "ffmpeg_hstack"}
+
+
+def _case_label(selected: dict[str, Any], seed: int, episode: int) -> str:
+    label = str(selected.get("case_label") or "").strip()
+    if label:
+        return label
+    case_id = selected.get("case_id")
+    if case_id not in {"", None}:
+        return f"case{_int(case_id)}_seed{seed}_ep{episode:04d}"
+    return f"seed{seed}_ep{episode:04d}"
 
 
 def _selected_episode_row(
