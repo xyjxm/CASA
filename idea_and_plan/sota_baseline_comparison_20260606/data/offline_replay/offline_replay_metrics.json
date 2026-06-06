@@ -1,0 +1,479 @@
+{
+  "adapter_calibration": {
+    "crc_cbf_adapted": {
+      "calibration_summary": {
+        "alpha": 0.1,
+        "calibration_rows": 7772,
+        "lambda_by_skill": {
+          "gesture": 0.0,
+          "global": 0.0,
+          "passive": 0.0,
+          "turn": 0.0,
+          "walk": 0.0
+        },
+        "risk_budget": 0.1,
+        "score": "max(0, max(raw_critic_risk, hard_contract_score) + conformal_lambda - 1)"
+      },
+      "implementation_fidelity": "paper_faithful_proxy",
+      "method": "crc_cbf_adapted",
+      "mode": "gate",
+      "source_method": "Safe Probabilistic Planning for Human-Robot Interaction using Conformal Risk Control"
+    },
+    "mpc_cbf_humanoid_adapted": {
+      "calibration_summary": {
+        "calibration_rows": 7772,
+        "proxy_scope": "gate_only_reduced_order_mpc_cbf_no_poisson_solver",
+        "safety_buffer_by_skill": {
+          "gesture": 0.0,
+          "global": 0.1500107407569885,
+          "passive": 0.0,
+          "turn": 0.0,
+          "walk": 0.15018325150012968
+        },
+        "score": "- predicted_min_cbf_margin under reduced-order skill-level rollout",
+        "thresholds": {
+          "gesture": -0.0,
+          "global": -0.1500107407569885,
+          "passive": -0.0,
+          "turn": -0.0,
+          "walk": -0.15018325150012968
+        }
+      },
+      "implementation_fidelity": "lightweight_proxy",
+      "method": "mpc_cbf_humanoid_adapted",
+      "mode": "gate",
+      "source_method": "Geometry-Aware Predictive Safety Filters on Humanoids: From Poisson Safety Functions to CBF Constrained MPC"
+    },
+    "pcbf_adapted": {
+      "calibration_summary": {
+        "calibration_rows": 7772,
+        "chance_z": 1.6448536269514722,
+        "epsilon": 0.05,
+        "score": "max(raw_critic_risk, hard_contract_score) + z_epsilon * calibrated_uncertainty",
+        "thresholds": {
+          "gesture": 2.495321523610846,
+          "global": 2.495321523610846,
+          "passive": 2.535196725024102,
+          "turn": 2.535196725024102,
+          "walk": 2.5271178133641214
+        },
+        "uncertainty_by_skill": {
+          "gesture": 0.9090909361839294,
+          "global": 0.9285714030265808,
+          "passive": 0.9333333373069763,
+          "turn": 0.9333333373069763,
+          "walk": 0.9285714030265808
+        }
+      },
+      "implementation_fidelity": "paper_faithful_proxy",
+      "method": "pcbf_adapted",
+      "mode": "gate",
+      "source_method": "Reinforcement Learning with Probabilistically Safe Control Barrier Functions for Ramp Merging"
+    }
+  },
+  "feature_schema": {
+    "adapter_contract": {
+      "input": [
+        "state/shared_feature_vector_if_online",
+        "candidate skill",
+        "candidate skill parameters",
+        "raw_critic_risk",
+        "hard_contract_score",
+        "hard_contract_fixed_reject",
+        "optional obstacle/user proxy features"
+      ],
+      "output": [
+        "allow/reject",
+        "risk_score",
+        "threshold",
+        "fallback_mode",
+        "runtime_ms",
+        "solver_status",
+        "diagnostics"
+      ]
+    },
+    "offline_replay_fields": [
+      "skill_name",
+      "label",
+      "raw_critic_risk",
+      "hard_contract_score",
+      "hard_contract_fixed_reject"
+    ],
+    "online_extra_fields": [
+      "env/min_user_distance/current",
+      "env/min_arm_user_distance/current",
+      "env/min_obstacle_distance/current",
+      "robot/torso_roll/current",
+      "robot/torso_pitch/current",
+      "candidate skill parameters"
+    ]
+  },
+  "max_rows": 500,
+  "methods": [
+    {
+      "accepted_count": 490,
+      "accepted_unsafe_rate": 0.024489795918367346,
+      "count": 500,
+      "fnr": 0.6,
+      "method": "pcbf_adapted",
+      "method_display": "PCBF-adapted",
+      "prevented_unsafe_count": 8,
+      "reject_count": 10,
+      "reject_rate": 0.02,
+      "rejection_precision": 0.8,
+      "safe_acceptance_proxy": 0.9958333333333333,
+      "safe_acceptance_rate": 0.9958333333333333,
+      "safe_total": 480,
+      "skill_name": "all",
+      "split": "test",
+      "task_success_proxy": 0.9958333333333333,
+      "unsafe_invocation_count": 12,
+      "unsafe_total": 20
+    },
+    {
+      "accepted_count": 496,
+      "accepted_unsafe_rate": 0.03225806451612903,
+      "count": 500,
+      "fnr": 0.8,
+      "method": "crc_cbf_adapted",
+      "method_display": "CRC-CBF-adapted",
+      "prevented_unsafe_count": 4,
+      "reject_count": 4,
+      "reject_rate": 0.008,
+      "rejection_precision": 1.0,
+      "safe_acceptance_proxy": 1.0,
+      "safe_acceptance_rate": 1.0,
+      "safe_total": 480,
+      "skill_name": "all",
+      "split": "test",
+      "task_success_proxy": 1.0,
+      "unsafe_invocation_count": 16,
+      "unsafe_total": 20
+    },
+    {
+      "accepted_count": 492,
+      "accepted_unsafe_rate": 0.028455284552845527,
+      "count": 500,
+      "fnr": 0.7,
+      "method": "mpc_cbf_humanoid_adapted",
+      "method_display": "MPC-CBF-Humanoid-adapted",
+      "prevented_unsafe_count": 6,
+      "reject_count": 8,
+      "reject_rate": 0.016,
+      "rejection_precision": 0.75,
+      "safe_acceptance_proxy": 0.9958333333333333,
+      "safe_acceptance_rate": 0.9958333333333333,
+      "safe_total": 480,
+      "skill_name": "all",
+      "split": "test",
+      "task_success_proxy": 0.9958333333333333,
+      "unsafe_invocation_count": 14,
+      "unsafe_total": 20
+    }
+  ],
+  "notes": [
+    "Offline replay uses CASA Phase4/Phase5 logged candidate decisions and labels.",
+    "No online test labels are used for adapter calibration.",
+    "Reported metrics are rerun metrics in the CASA score space, not copied paper numbers."
+  ],
+  "per_skill": [
+    {
+      "accepted_count": 174,
+      "accepted_unsafe_rate": 0.06896551724137931,
+      "count": 181,
+      "fnr": 0.631578947368421,
+      "method": "pcbf_adapted",
+      "method_display": "PCBF-adapted",
+      "prevented_unsafe_count": 7,
+      "reject_count": 7,
+      "reject_rate": 0.03867403314917127,
+      "rejection_precision": 1.0,
+      "safe_acceptance_proxy": 1.0,
+      "safe_acceptance_rate": 1.0,
+      "safe_total": 162,
+      "skill_name": "walk",
+      "split": "test",
+      "task_success_proxy": 1.0,
+      "unsafe_invocation_count": 12,
+      "unsafe_total": 19
+    },
+    {
+      "accepted_count": 27,
+      "accepted_unsafe_rate": 0.0,
+      "count": 27,
+      "fnr": 0.0,
+      "method": "pcbf_adapted",
+      "method_display": "PCBF-adapted",
+      "prevented_unsafe_count": 0,
+      "reject_count": 0,
+      "reject_rate": 0.0,
+      "rejection_precision": 0.0,
+      "safe_acceptance_proxy": 1.0,
+      "safe_acceptance_rate": 1.0,
+      "safe_total": 27,
+      "skill_name": "turn",
+      "split": "test",
+      "task_success_proxy": 1.0,
+      "unsafe_invocation_count": 0,
+      "unsafe_total": 0
+    },
+    {
+      "accepted_count": 185,
+      "accepted_unsafe_rate": 0.0,
+      "count": 188,
+      "fnr": 0.0,
+      "method": "pcbf_adapted",
+      "method_display": "PCBF-adapted",
+      "prevented_unsafe_count": 1,
+      "reject_count": 3,
+      "reject_rate": 0.015957446808510637,
+      "rejection_precision": 0.3333333333333333,
+      "safe_acceptance_proxy": 0.9893048128342246,
+      "safe_acceptance_rate": 0.9893048128342246,
+      "safe_total": 187,
+      "skill_name": "gesture",
+      "split": "test",
+      "task_success_proxy": 0.9893048128342246,
+      "unsafe_invocation_count": 0,
+      "unsafe_total": 1
+    },
+    {
+      "accepted_count": 104,
+      "accepted_unsafe_rate": 0.0,
+      "count": 104,
+      "fnr": 0.0,
+      "method": "pcbf_adapted",
+      "method_display": "PCBF-adapted",
+      "prevented_unsafe_count": 0,
+      "reject_count": 0,
+      "reject_rate": 0.0,
+      "rejection_precision": 0.0,
+      "safe_acceptance_proxy": 1.0,
+      "safe_acceptance_rate": 1.0,
+      "safe_total": 104,
+      "skill_name": "passive",
+      "split": "test",
+      "task_success_proxy": 1.0,
+      "unsafe_invocation_count": 0,
+      "unsafe_total": 0
+    },
+    {
+      "accepted_count": 178,
+      "accepted_unsafe_rate": 0.0898876404494382,
+      "count": 181,
+      "fnr": 0.8421052631578947,
+      "method": "crc_cbf_adapted",
+      "method_display": "CRC-CBF-adapted",
+      "prevented_unsafe_count": 3,
+      "reject_count": 3,
+      "reject_rate": 0.016574585635359115,
+      "rejection_precision": 1.0,
+      "safe_acceptance_proxy": 1.0,
+      "safe_acceptance_rate": 1.0,
+      "safe_total": 162,
+      "skill_name": "walk",
+      "split": "test",
+      "task_success_proxy": 1.0,
+      "unsafe_invocation_count": 16,
+      "unsafe_total": 19
+    },
+    {
+      "accepted_count": 27,
+      "accepted_unsafe_rate": 0.0,
+      "count": 27,
+      "fnr": 0.0,
+      "method": "crc_cbf_adapted",
+      "method_display": "CRC-CBF-adapted",
+      "prevented_unsafe_count": 0,
+      "reject_count": 0,
+      "reject_rate": 0.0,
+      "rejection_precision": 0.0,
+      "safe_acceptance_proxy": 1.0,
+      "safe_acceptance_rate": 1.0,
+      "safe_total": 27,
+      "skill_name": "turn",
+      "split": "test",
+      "task_success_proxy": 1.0,
+      "unsafe_invocation_count": 0,
+      "unsafe_total": 0
+    },
+    {
+      "accepted_count": 187,
+      "accepted_unsafe_rate": 0.0,
+      "count": 188,
+      "fnr": 0.0,
+      "method": "crc_cbf_adapted",
+      "method_display": "CRC-CBF-adapted",
+      "prevented_unsafe_count": 1,
+      "reject_count": 1,
+      "reject_rate": 0.005319148936170213,
+      "rejection_precision": 1.0,
+      "safe_acceptance_proxy": 1.0,
+      "safe_acceptance_rate": 1.0,
+      "safe_total": 187,
+      "skill_name": "gesture",
+      "split": "test",
+      "task_success_proxy": 1.0,
+      "unsafe_invocation_count": 0,
+      "unsafe_total": 1
+    },
+    {
+      "accepted_count": 104,
+      "accepted_unsafe_rate": 0.0,
+      "count": 104,
+      "fnr": 0.0,
+      "method": "crc_cbf_adapted",
+      "method_display": "CRC-CBF-adapted",
+      "prevented_unsafe_count": 0,
+      "reject_count": 0,
+      "reject_rate": 0.0,
+      "rejection_precision": 0.0,
+      "safe_acceptance_proxy": 1.0,
+      "safe_acceptance_rate": 1.0,
+      "safe_total": 104,
+      "skill_name": "passive",
+      "split": "test",
+      "task_success_proxy": 1.0,
+      "unsafe_invocation_count": 0,
+      "unsafe_total": 0
+    },
+    {
+      "accepted_count": 176,
+      "accepted_unsafe_rate": 0.07954545454545454,
+      "count": 181,
+      "fnr": 0.7368421052631579,
+      "method": "mpc_cbf_humanoid_adapted",
+      "method_display": "MPC-CBF-Humanoid-adapted",
+      "prevented_unsafe_count": 5,
+      "reject_count": 5,
+      "reject_rate": 0.027624309392265192,
+      "rejection_precision": 1.0,
+      "safe_acceptance_proxy": 1.0,
+      "safe_acceptance_rate": 1.0,
+      "safe_total": 162,
+      "skill_name": "walk",
+      "split": "test",
+      "task_success_proxy": 1.0,
+      "unsafe_invocation_count": 14,
+      "unsafe_total": 19
+    },
+    {
+      "accepted_count": 27,
+      "accepted_unsafe_rate": 0.0,
+      "count": 27,
+      "fnr": 0.0,
+      "method": "mpc_cbf_humanoid_adapted",
+      "method_display": "MPC-CBF-Humanoid-adapted",
+      "prevented_unsafe_count": 0,
+      "reject_count": 0,
+      "reject_rate": 0.0,
+      "rejection_precision": 0.0,
+      "safe_acceptance_proxy": 1.0,
+      "safe_acceptance_rate": 1.0,
+      "safe_total": 27,
+      "skill_name": "turn",
+      "split": "test",
+      "task_success_proxy": 1.0,
+      "unsafe_invocation_count": 0,
+      "unsafe_total": 0
+    },
+    {
+      "accepted_count": 185,
+      "accepted_unsafe_rate": 0.0,
+      "count": 188,
+      "fnr": 0.0,
+      "method": "mpc_cbf_humanoid_adapted",
+      "method_display": "MPC-CBF-Humanoid-adapted",
+      "prevented_unsafe_count": 1,
+      "reject_count": 3,
+      "reject_rate": 0.015957446808510637,
+      "rejection_precision": 0.3333333333333333,
+      "safe_acceptance_proxy": 0.9893048128342246,
+      "safe_acceptance_rate": 0.9893048128342246,
+      "safe_total": 187,
+      "skill_name": "gesture",
+      "split": "test",
+      "task_success_proxy": 0.9893048128342246,
+      "unsafe_invocation_count": 0,
+      "unsafe_total": 1
+    },
+    {
+      "accepted_count": 104,
+      "accepted_unsafe_rate": 0.0,
+      "count": 104,
+      "fnr": 0.0,
+      "method": "mpc_cbf_humanoid_adapted",
+      "method_display": "MPC-CBF-Humanoid-adapted",
+      "prevented_unsafe_count": 0,
+      "reject_count": 0,
+      "reject_rate": 0.0,
+      "rejection_precision": 0.0,
+      "safe_acceptance_proxy": 1.0,
+      "safe_acceptance_rate": 1.0,
+      "safe_total": 104,
+      "skill_name": "passive",
+      "split": "test",
+      "task_success_proxy": 1.0,
+      "unsafe_invocation_count": 0,
+      "unsafe_total": 0
+    }
+  ],
+  "phase": "CASA SOTA adapted baseline offline replay",
+  "predictions_csv": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase4_dataset_v1_strict_50k_20260522/raw_critic/predictions.csv",
+  "split": "test",
+  "split_manifest": {
+    "calibration_split": "calibration",
+    "evaluated_split": "test",
+    "methods": [
+      "pcbf_adapted",
+      "crc_cbf_adapted",
+      "mpc_cbf_humanoid_adapted"
+    ],
+    "no_test_leakage_rule": "adapter thresholds are calibrated only on phase4_split == calibration",
+    "predictions_csv": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase4_dataset_v1_strict_50k_20260522/raw_critic/predictions.csv",
+    "split_counts": {
+      "calibration": {
+        "count": 7772,
+        "per_skill": {
+          "gesture": 1638,
+          "passive": 2696,
+          "turn": 1721,
+          "walk": 1717
+        },
+        "unsafe": 1606
+      },
+      "critic_val": {
+        "count": 0,
+        "per_skill": {
+          "gesture": 0,
+          "passive": 0,
+          "turn": 0,
+          "walk": 0
+        },
+        "unsafe": 0
+      },
+      "test": {
+        "count": 7454,
+        "per_skill": {
+          "gesture": 1599,
+          "passive": 2512,
+          "turn": 1661,
+          "walk": 1682
+        },
+        "unsafe": 1439
+      },
+      "train": {
+        "count": 34774,
+        "per_skill": {
+          "gesture": 7465,
+          "passive": 11156,
+          "turn": 8040,
+          "walk": 8113
+        },
+        "unsafe": 6454
+      }
+    },
+    "thresholds_json": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase5_conformal_baselines_20260522/conformal_thresholds.json"
+  },
+  "thresholds_json": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase5_conformal_baselines_20260522/conformal_thresholds.json"
+}

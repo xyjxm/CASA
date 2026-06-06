@@ -1,0 +1,12 @@
+.venv_sim/bin/python -u gear_sonic/scripts/casa_run_phase5_online_main_lowmem.py \
+  --phase4-root /mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase4_dataset_v1_strict_50k_20260522 \
+  --phase5-root /mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase5_conformal_baselines_20260522 \
+  --online-root /mnt/data/students/lph/recording/codex_goal_sota_baseline_comparison_20260606_144918/online/full_online_eval \
+  --methods sonic_only,hard_contract,raw_critic_0p5,global_conformal,casa_a_per_skill,pcbf_adapted,crc_cbf_adapted,mpc_cbf_humanoid_adapted \
+  --casa-method casa_a_per_skill \
+  --seeds 1234,1235,1236,1237,1238 \
+  --episodes-per-seed 100 \
+  --max-parallel 3 \
+  --chunk-size 25 \
+  --cuda-devices 0,1 \
+  --performance-preset custom

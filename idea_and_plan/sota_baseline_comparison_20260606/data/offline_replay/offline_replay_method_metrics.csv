@@ -1,0 +1,4 @@
+method,method_display,split,skill_name,count,safe_total,unsafe_total,reject_count,reject_rate,accepted_count,unsafe_invocation_count,fnr,accepted_unsafe_rate,prevented_unsafe_count,rejection_precision,safe_acceptance_rate,safe_acceptance_proxy,task_success_proxy
+pcbf_adapted,PCBF-adapted,test,all,500,480,20,10,0.02,490,12,0.6,0.024489795918367346,8,0.8,0.9958333333333333,0.9958333333333333,0.9958333333333333
+crc_cbf_adapted,CRC-CBF-adapted,test,all,500,480,20,4,0.008,496,16,0.8,0.03225806451612903,4,1.0,1.0,1.0,1.0
+mpc_cbf_humanoid_adapted,MPC-CBF-Humanoid-adapted,test,all,500,480,20,8,0.016,492,14,0.7,0.028455284552845527,6,0.75,0.9958333333333333,0.9958333333333333,0.9958333333333333

@@ -1,0 +1,4 @@
+method,method_display,episode_count,task_success_rate,unsafe_invocation_count,fallback_count,mean_completion_time_s,failed_or_unverified
+pcbf_adapted,PCBF-adapted,2,1.0,0,0,0.011258602142333984,0
+crc_cbf_adapted,CRC-CBF-adapted,2,1.0,0,0,0.010942339897155762,0
+mpc_cbf_humanoid_adapted,MPC-CBF-Humanoid-adapted,2,1.0,0,0,0.011293292045593262,0

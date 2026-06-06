@@ -1,0 +1,54 @@
+{
+  "calibration_split": "calibration",
+  "evaluated_split": "test",
+  "methods": [
+    "pcbf_adapted",
+    "crc_cbf_adapted",
+    "mpc_cbf_humanoid_adapted"
+  ],
+  "no_test_leakage_rule": "adapter thresholds are calibrated only on phase4_split == calibration",
+  "predictions_csv": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase4_dataset_v1_strict_50k_20260522/raw_critic/predictions.csv",
+  "split_counts": {
+    "calibration": {
+      "count": 7772,
+      "per_skill": {
+        "gesture": 1638,
+        "passive": 2696,
+        "turn": 1721,
+        "walk": 1717
+      },
+      "unsafe": 1606
+    },
+    "critic_val": {
+      "count": 0,
+      "per_skill": {
+        "gesture": 0,
+        "passive": 0,
+        "turn": 0,
+        "walk": 0
+      },
+      "unsafe": 0
+    },
+    "test": {
+      "count": 7454,
+      "per_skill": {
+        "gesture": 1599,
+        "passive": 2512,
+        "turn": 1661,
+        "walk": 1682
+      },
+      "unsafe": 1439
+    },
+    "train": {
+      "count": 34774,
+      "per_skill": {
+        "gesture": 7465,
+        "passive": 11156,
+        "turn": 8040,
+        "walk": 8113
+      },
+      "unsafe": 6454
+    }
+  },
+  "thresholds_json": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase5_conformal_baselines_20260522/conformal_thresholds.json"
+}

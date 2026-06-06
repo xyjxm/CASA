@@ -1,0 +1,13 @@
+method,method_display,split,skill_name,count,safe_total,unsafe_total,reject_count,reject_rate,accepted_count,unsafe_invocation_count,fnr,accepted_unsafe_rate,prevented_unsafe_count,rejection_precision,safe_acceptance_rate,safe_acceptance_proxy,task_success_proxy
+pcbf_adapted,PCBF-adapted,test,walk,181,162,19,7,0.03867403314917127,174,12,0.631578947368421,0.06896551724137931,7,1.0,1.0,1.0,1.0
+pcbf_adapted,PCBF-adapted,test,turn,27,27,0,0,0.0,27,0,0.0,0.0,0,0.0,1.0,1.0,1.0
+pcbf_adapted,PCBF-adapted,test,gesture,188,187,1,3,0.015957446808510637,185,0,0.0,0.0,1,0.3333333333333333,0.9893048128342246,0.9893048128342246,0.9893048128342246
+pcbf_adapted,PCBF-adapted,test,passive,104,104,0,0,0.0,104,0,0.0,0.0,0,0.0,1.0,1.0,1.0
+crc_cbf_adapted,CRC-CBF-adapted,test,walk,181,162,19,3,0.016574585635359115,178,16,0.8421052631578947,0.0898876404494382,3,1.0,1.0,1.0,1.0
+crc_cbf_adapted,CRC-CBF-adapted,test,turn,27,27,0,0,0.0,27,0,0.0,0.0,0,0.0,1.0,1.0,1.0
+crc_cbf_adapted,CRC-CBF-adapted,test,gesture,188,187,1,1,0.005319148936170213,187,0,0.0,0.0,1,1.0,1.0,1.0,1.0
+crc_cbf_adapted,CRC-CBF-adapted,test,passive,104,104,0,0,0.0,104,0,0.0,0.0,0,0.0,1.0,1.0,1.0
+mpc_cbf_humanoid_adapted,MPC-CBF-Humanoid-adapted,test,walk,181,162,19,5,0.027624309392265192,176,14,0.7368421052631579,0.07954545454545454,5,1.0,1.0,1.0,1.0
+mpc_cbf_humanoid_adapted,MPC-CBF-Humanoid-adapted,test,turn,27,27,0,0,0.0,27,0,0.0,0.0,0,0.0,1.0,1.0,1.0
+mpc_cbf_humanoid_adapted,MPC-CBF-Humanoid-adapted,test,gesture,188,187,1,3,0.015957446808510637,185,0,0.0,0.0,1,0.3333333333333333,0.9893048128342246,0.9893048128342246,0.9893048128342246
+mpc_cbf_humanoid_adapted,MPC-CBF-Humanoid-adapted,test,passive,104,104,0,0,0.0,104,0,0.0,0.0,0,0.0,1.0,1.0,1.0

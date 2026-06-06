@@ -1,0 +1,7 @@
+{
+  "evaluation_protocol_table": "/mnt/data/students/lph/recording/codex_goal_sota_baseline_comparison_20260606_144918/reports/evaluation_protocol_table.md",
+  "full_online_eval_manifest": "/mnt/data/students/lph/recording/codex_goal_sota_baseline_comparison_20260606_144918/manifests/full_online_eval_manifest.json",
+  "implementation_fidelity_table": "/mnt/data/students/lph/recording/codex_goal_sota_baseline_comparison_20260606_144918/reports/implementation_fidelity_table.md",
+  "method_adaptation_table": "/mnt/data/students/lph/recording/codex_goal_sota_baseline_comparison_20260606_144918/reports/method_adaptation_table.md",
+  "metrics_table_template": "/mnt/data/students/lph/recording/codex_goal_sota_baseline_comparison_20260606_144918/reports/metrics_table_template.md"
+}

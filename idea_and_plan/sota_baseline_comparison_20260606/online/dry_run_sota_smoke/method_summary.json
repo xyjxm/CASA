@@ -1,0 +1,34 @@
+{
+  "methods": {
+    "crc_cbf_adapted": {
+      "episode_count": 2,
+      "failed_or_unverified": 0,
+      "fallback_count": 0,
+      "mean_completion_time_s": 0.010942339897155762,
+      "method": "crc_cbf_adapted",
+      "method_display": "CRC-CBF-adapted",
+      "task_success_rate": 1.0,
+      "unsafe_invocation_count": 0
+    },
+    "mpc_cbf_humanoid_adapted": {
+      "episode_count": 2,
+      "failed_or_unverified": 0,
+      "fallback_count": 0,
+      "mean_completion_time_s": 0.011293292045593262,
+      "method": "mpc_cbf_humanoid_adapted",
+      "method_display": "MPC-CBF-Humanoid-adapted",
+      "task_success_rate": 1.0,
+      "unsafe_invocation_count": 0
+    },
+    "pcbf_adapted": {
+      "episode_count": 2,
+      "failed_or_unverified": 0,
+      "fallback_count": 0,
+      "mean_completion_time_s": 0.011258602142333984,
+      "method": "pcbf_adapted",
+      "method_display": "PCBF-adapted",
+      "task_success_rate": 1.0,
+      "unsafe_invocation_count": 0
+    }
+  }
+}

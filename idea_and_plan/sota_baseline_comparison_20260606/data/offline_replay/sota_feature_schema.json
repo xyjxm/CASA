@@ -1,0 +1,37 @@
+{
+  "adapter_contract": {
+    "input": [
+      "state/shared_feature_vector_if_online",
+      "candidate skill",
+      "candidate skill parameters",
+      "raw_critic_risk",
+      "hard_contract_score",
+      "hard_contract_fixed_reject",
+      "optional obstacle/user proxy features"
+    ],
+    "output": [
+      "allow/reject",
+      "risk_score",
+      "threshold",
+      "fallback_mode",
+      "runtime_ms",
+      "solver_status",
+      "diagnostics"
+    ]
+  },
+  "offline_replay_fields": [
+    "skill_name",
+    "label",
+    "raw_critic_risk",
+    "hard_contract_score",
+    "hard_contract_fixed_reject"
+  ],
+  "online_extra_fields": [
+    "env/min_user_distance/current",
+    "env/min_arm_user_distance/current",
+    "env/min_obstacle_distance/current",
+    "robot/torso_roll/current",
+    "robot/torso_pitch/current",
+    "candidate skill parameters"
+  ]
+}

@@ -19,6 +19,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from gear_sonic.casa.baselines.sota_adapters import (  # noqa: E402
+    SotaDecisionContext,
+    build_sota_registry,
+    is_sota_method,
+)
 from gear_sonic.casa.dataset.invocation_dataset import _extract_features  # noqa: E402
 from gear_sonic.casa.io.zmq_publisher import LOCOMOTION_IDLE  # noqa: E402
 from gear_sonic.casa.loggers.rollout_logger import RolloutLogger  # noqa: E402
@@ -28,6 +33,8 @@ from gear_sonic.casa.phase5 import (  # noqa: E402
     METHOD_ORDER,
     hard_contract_scores,
     read_json,
+    read_prediction_rows,
+    split_role,
     write_csv,
     write_json,
 )
@@ -136,6 +143,7 @@ def main() -> None:
         pre_window_seconds=args.pre_window_seconds,
         require_model=not args.dry_run,
     )
+    write_json(output_dir / "sota_adapter_calibration.json", gate.sota_calibration_summary)
     oracle = SafetyOracle()
     episode_rows = []
     decision_rows = []
@@ -300,6 +308,8 @@ class Phase5Gate:
         self.thresholds = thresholds
         self.pre_window_seconds = pre_window_seconds
         self.previous_skill_event: dict[str, Any] | None = None
+        self.sota_registry = build_sota_registry()
+        self.sota_calibration_summary = self._calibrate_sota_adapters(phase4_root)
 
     def decide(
         self,
@@ -311,6 +321,16 @@ class Phase5Gate:
     ) -> dict[str, Any]:
         feature_vector, hard_score, hard_fixed = self._features(skill, sim_log_dir, scene_props)
         raw_risk = self._risk(feature_vector)
+        if is_sota_method(method):
+            return self._decide_sota(
+                method=method,
+                skill=skill,
+                scene_props=scene_props,
+                feature_vector=feature_vector,
+                raw_risk=raw_risk,
+                hard_score=hard_score,
+                hard_fixed=hard_fixed,
+            )
         policy_decision = evaluate_online_method(
             method=method,
             skill_name=skill.name,
@@ -329,6 +349,80 @@ class Phase5Gate:
             "risk_margin": "" if policy_decision.risk_margin is None else policy_decision.risk_margin,
             "decision": "reject" if policy_decision.reject else "allow",
             "reject_reason": policy_decision.reject_reason,
+        }
+
+    def _decide_sota(
+        self,
+        *,
+        method: str,
+        skill: Any,
+        scene_props: dict[str, Any],
+        feature_vector: np.ndarray,
+        raw_risk: float,
+        hard_score: float,
+        hard_fixed: bool,
+    ) -> dict[str, Any]:
+        context = SotaDecisionContext(
+            skill_name=skill.name,
+            skill_params=skill.params(),
+            raw_critic_risk=raw_risk,
+            hard_contract_score=hard_score,
+            hard_contract_fixed_reject=bool(hard_fixed),
+            thresholds=self.thresholds,
+            feature_vector=feature_vector,
+            feature_names=self.feature_names,
+            scene_props=scene_props,
+        )
+        decision = self.sota_registry.decide(method, context)
+        return {
+            "method": method,
+            "candidate_skill": skill.name,
+            "candidate_params_json": json.dumps(skill.params(), sort_keys=True),
+            "raw_critic_risk": raw_risk,
+            "hard_contract_score": hard_score,
+            "hard_contract_fixed_reject": int(bool(hard_fixed)),
+            "threshold": "" if decision.threshold is None else decision.threshold,
+            "risk_margin": "" if decision.risk_margin is None else decision.risk_margin,
+            "decision": "allow" if decision.allow else "reject",
+            "reject_reason": decision.reject_reason,
+            "source_method": decision.source_method,
+            "implementation_fidelity": decision.implementation_fidelity,
+            "baseline_mode": decision.mode,
+            "risk_score": "" if decision.risk_score is None else decision.risk_score,
+            "fallback_mode": "" if decision.fallback_mode is None else decision.fallback_mode,
+            "corrected_skill_json": "" if decision.corrected_skill is None else json.dumps(
+                decision.corrected_skill,
+                sort_keys=True,
+            ),
+            "runtime_ms": "" if decision.runtime_ms is None else decision.runtime_ms,
+            "solver_status": decision.solver_status,
+            "diagnostics_json": json.dumps(decision.diagnostics, sort_keys=True),
+        }
+
+    def _calibrate_sota_adapters(self, phase4_root: Path) -> dict[str, Any]:
+        predictions_csv = phase4_root / "raw_critic" / "predictions.csv"
+        if not predictions_csv.exists():
+            return {
+                "status": "missing_predictions_csv",
+                "predictions_csv": str(predictions_csv),
+                "adapters": self.sota_registry.metadata(),
+            }
+        try:
+            rows = read_prediction_rows(predictions_csv)
+        except Exception as exc:  # noqa: BLE001 - online Plan A methods must remain usable.
+            return {
+                "status": "calibration_failed",
+                "predictions_csv": str(predictions_csv),
+                "error": repr(exc),
+                "adapters": self.sota_registry.metadata(),
+            }
+        calibration_rows = [row for row in rows if split_role(row.get("phase4_split")) == "calibration"]
+        self.sota_registry.calibrate(calibration_rows)
+        return {
+            "status": "calibrated",
+            "predictions_csv": str(predictions_csv),
+            "calibration_rows": len(calibration_rows),
+            "adapters": self.sota_registry.metadata(),
         }
 
     def remember_result(self, result: Any) -> None:

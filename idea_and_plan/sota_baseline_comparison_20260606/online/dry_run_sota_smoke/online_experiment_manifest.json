@@ -1,0 +1,56 @@
+{
+  "aborted_after_initial_upright_failure": false,
+  "dry_run": true,
+  "episode_end_exclusive": 2,
+  "episode_start": 0,
+  "episodes_per_seed": 2,
+  "expected_artifacts": [
+    "online_episode_results.csv",
+    "gate_decisions.csv",
+    "method_summary.csv",
+    "method_summary.json",
+    "online_experiment_manifest.json"
+  ],
+  "gate_inputs": {
+    "feature_schema": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase4_dataset_v1_strict_50k_20260522/dataset_v1/feature_schema.json",
+    "raw_critic_checkpoint": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase4_dataset_v1_strict_50k_20260522/raw_critic/raw_critic.pt",
+    "thresholds_json": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase5_conformal_baselines_20260522/conformal_thresholds.json"
+  },
+  "methods": [
+    "pcbf_adapted",
+    "crc_cbf_adapted",
+    "mpc_cbf_humanoid_adapted"
+  ],
+  "notes": [
+    "All methods receive the same scene command and deterministic skill sequence for each seed/episode.",
+    "Rejected candidate skills execute stop/adaptive/adaptive_retry fallback according to method and flags.",
+    "Segmented methods log one gate decision per executed segment."
+  ],
+  "output_dir": "/mnt/data/students/lph/recording/codex_goal_sota_baseline_comparison_20260606_144918/online/dry_run_sota_smoke",
+  "phase": "CASA Phase5 online experiment",
+  "phase4_root": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase4_dataset_v1_strict_50k_20260522",
+  "phase5_root": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase5_conformal_baselines_20260522",
+  "runtime_inputs": {
+    "adaptive_retry_count": 1,
+    "fallback_policy": "auto",
+    "max_segment_duration": 0.5,
+    "method_order_seed": 0,
+    "post_horizon": 2.0,
+    "pre_window_seconds": 1.0,
+    "publish_fps": 10.0,
+    "randomize_method_order": false,
+    "recheck_before_segment": false,
+    "segment_long_skills": false,
+    "sim_log_dir": "",
+    "zmq_host": "*",
+    "zmq_port": 5556
+  },
+  "seeds": [
+    1234
+  ],
+  "smoke": true,
+  "threshold_scaling": {
+    "by_skill": {},
+    "global": 1.0
+  }
+}

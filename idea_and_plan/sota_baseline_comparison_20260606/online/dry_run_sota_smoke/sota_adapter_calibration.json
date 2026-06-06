@@ -1,0 +1,77 @@
+{
+  "adapters": {
+    "crc_cbf_adapted": {
+      "calibration_summary": {
+        "alpha": 0.1,
+        "calibration_rows": 7772,
+        "lambda_by_skill": {
+          "gesture": 0.0,
+          "global": 0.0,
+          "passive": 0.0,
+          "turn": 0.0,
+          "walk": 0.0
+        },
+        "risk_budget": 0.1,
+        "score": "max(0, max(raw_critic_risk, hard_contract_score) + conformal_lambda - 1)"
+      },
+      "implementation_fidelity": "paper_faithful_proxy",
+      "method": "crc_cbf_adapted",
+      "mode": "gate",
+      "source_method": "Safe Probabilistic Planning for Human-Robot Interaction using Conformal Risk Control"
+    },
+    "mpc_cbf_humanoid_adapted": {
+      "calibration_summary": {
+        "calibration_rows": 7772,
+        "proxy_scope": "gate_only_reduced_order_mpc_cbf_no_poisson_solver",
+        "safety_buffer_by_skill": {
+          "gesture": 0.0,
+          "global": 0.1500107407569885,
+          "passive": 0.0,
+          "turn": 0.0,
+          "walk": 0.15018325150012968
+        },
+        "score": "- predicted_min_cbf_margin under reduced-order skill-level rollout",
+        "thresholds": {
+          "gesture": -0.0,
+          "global": -0.1500107407569885,
+          "passive": -0.0,
+          "turn": -0.0,
+          "walk": -0.15018325150012968
+        }
+      },
+      "implementation_fidelity": "lightweight_proxy",
+      "method": "mpc_cbf_humanoid_adapted",
+      "mode": "gate",
+      "source_method": "Geometry-Aware Predictive Safety Filters on Humanoids: From Poisson Safety Functions to CBF Constrained MPC"
+    },
+    "pcbf_adapted": {
+      "calibration_summary": {
+        "calibration_rows": 7772,
+        "chance_z": 1.6448536269514722,
+        "epsilon": 0.05,
+        "score": "max(raw_critic_risk, hard_contract_score) + z_epsilon * calibrated_uncertainty",
+        "thresholds": {
+          "gesture": 2.495321523610846,
+          "global": 2.495321523610846,
+          "passive": 2.535196725024102,
+          "turn": 2.535196725024102,
+          "walk": 2.5271178133641214
+        },
+        "uncertainty_by_skill": {
+          "gesture": 0.9090909361839294,
+          "global": 0.9285714030265808,
+          "passive": 0.9333333373069763,
+          "turn": 0.9333333373069763,
+          "walk": 0.9285714030265808
+        }
+      },
+      "implementation_fidelity": "paper_faithful_proxy",
+      "method": "pcbf_adapted",
+      "mode": "gate",
+      "source_method": "Reinforcement Learning with Probabilistically Safe Control Barrier Functions for Ramp Merging"
+    }
+  },
+  "calibration_rows": 7772,
+  "predictions_csv": "/mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase4_dataset_v1_strict_50k_20260522/raw_critic/predictions.csv",
+  "status": "calibrated"
+}

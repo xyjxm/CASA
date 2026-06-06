@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import math
 from typing import Any
 
+from gear_sonic.casa.baselines.sota_adapters import SOTA_METHOD_DISPLAY, SOTA_METHOD_ORDER
 from gear_sonic.casa.phase5 import METHOD_DISPLAY, METHOD_ORDER
 
 ONLINE_CANDIDATE_METHODS = (
@@ -15,7 +16,7 @@ ONLINE_CANDIDATE_METHODS = (
     "casa_a_receding_recovery",
     "casa_a_hard_or_receding_recovery",
 )
-ONLINE_METHOD_ORDER = (*METHOD_ORDER, *ONLINE_CANDIDATE_METHODS)
+ONLINE_METHOD_ORDER = (*METHOD_ORDER, *ONLINE_CANDIDATE_METHODS, *SOTA_METHOD_ORDER)
 ONLINE_METHOD_DISPLAY = {
     **METHOD_DISPLAY,
     "casa_a_hard_or_per_skill": "SONIC + CASA-A hard-OR per-skill",
@@ -23,6 +24,7 @@ ONLINE_METHOD_DISPLAY = {
     "casa_a_hard_or_recovery": "SONIC + CASA-A hard-OR adaptive recovery",
     "casa_a_receding_recovery": "SONIC + CASA-A receding recovery",
     "casa_a_hard_or_receding_recovery": "SONIC + CASA-A hard-OR receding recovery",
+    **SOTA_METHOD_DISPLAY,
 }
 
 
