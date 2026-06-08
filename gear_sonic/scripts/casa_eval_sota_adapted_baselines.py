@@ -8,6 +8,8 @@ from pathlib import Path
 import sys
 from typing import Any
 
+import numpy as np
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -48,7 +50,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     predictions_csv = args.predictions_csv or args.phase4_root / "raw_critic" / "predictions.csv"
     thresholds_json = args.thresholds_json or args.phase5_root / "conformal_thresholds.json"
-    rows = read_prediction_rows(predictions_csv)
+    rows = _attach_phase4_feature_vectors(args.phase4_root, read_prediction_rows(predictions_csv))
     thresholds = read_json(thresholds_json)["thresholds"]
     methods = _parse_methods(args.methods)
 
@@ -60,6 +62,9 @@ def main() -> None:
         raise SystemExit(f"No rows found for split {args.split!r} in {predictions_csv}")
 
     registry = build_sota_registry()
+    train_rows = [row for row in rows if split_role(row.get("phase4_split")) == "train"]
+    val_rows = [row for row in rows if split_role(row.get("phase4_split")) == "critic_val"]
+    registry.fit(train_rows, val_rows)
     registry.calibrate(calibration_rows)
     decision_rows: list[dict[str, Any]] = []
     metrics_rows: list[dict[str, Any]] = []
@@ -135,6 +140,8 @@ def _decide_row(
         hard_contract_score=float(row["hard_contract_score_float"]),
         hard_contract_fixed_reject=bool(row["hard_contract_fixed_reject_bool"]),
         thresholds=thresholds,
+        feature_vector=row.get("_feature_vector"),
+        feature_names=row.get("_feature_names", ()),
         row=row,
     )
     decision = registry.decide(method, context)
@@ -167,6 +174,36 @@ def _decide_row(
         "solver_status": decision.solver_status,
         "diagnostics_json": json.dumps(decision.diagnostics, sort_keys=True),
     }
+
+
+def _attach_phase4_feature_vectors(
+    phase4_root: Path,
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows = [dict(row) for row in rows]
+    split_to_npz = {
+        "train": phase4_root / "dataset_v1" / "features_train.npz",
+        "calibration": phase4_root / "dataset_v1" / "features_calibration.npz",
+        "test": phase4_root / "dataset_v1" / "features_test.npz",
+    }
+    for split, npz_path in split_to_npz.items():
+        split_indexes = [
+            index for index, row in enumerate(rows) if split_role(row.get("phase4_split")) == split
+        ]
+        if not split_indexes or not npz_path.exists():
+            continue
+        try:
+            data = np.load(npz_path, allow_pickle=False)
+            features = data["X"]
+            feature_names = tuple(str(name) for name in data["feature_names"])
+        except Exception:
+            continue
+        if len(split_indexes) != int(features.shape[0]):
+            continue
+        for feature_index, row_index in enumerate(split_indexes):
+            rows[row_index]["_feature_vector"] = features[feature_index]
+            rows[row_index]["_feature_names"] = feature_names
+    return rows
 
 
 def _split_manifest(

@@ -92,7 +92,12 @@ def method_summary_rows(
         if count == 0:
             continue
         unsafe = sum(_int(row.get("unsafe_invocation_count")) for row in method_rows)
+        unsafe_episode_count = sum(_int(row.get("unsafe_invocation_count")) > 0 for row in method_rows)
         fallback = sum(_int(row.get("fallback_count")) for row in method_rows)
+        violation_count = sum(_int(row.get("violation_count")) for row in method_rows)
+        violation_type_counts: Counter[str] = Counter()
+        for episode_row in method_rows:
+            violation_type_counts.update(_parse_violation_types(episode_row.get("violation_types")))
         completed = sum(1 for row in method_rows if row.get("status") == "completed")
         task_success = sum(_int(row.get("task_success")) for row in method_rows)
         output.append(
@@ -108,6 +113,13 @@ def method_summary_rows(
                 "safe_completion_rate": task_success / count,
                 "unsafe_invocation_count": unsafe,
                 "unsafe_invocation_rate_per_episode": unsafe / count,
+                "unsafe_episode_count": unsafe_episode_count,
+                "unsafe_episode_rate": unsafe_episode_count / count,
+                "violation_count": violation_count,
+                "fall_count": violation_type_counts.get("fall", 0),
+                "collision_count": violation_type_counts.get("collision", 0),
+                "near_collision_count": violation_type_counts.get("near_collision", 0),
+                "human_distance_violation_count": violation_type_counts.get("human_distance_violation", 0),
                 "fallback_count": fallback,
                 "fallback_rate_per_episode": fallback / count,
                 "mean_completion_time_s": sum(_float(row.get("completion_time_s")) for row in method_rows)
@@ -864,6 +876,21 @@ def _augment_method_summary_with_task_progress(
             and str(decision.get("executed_skill", "")) != str(decision.get("candidate_skill", ""))
         ]
         rows_with_progress = [decision for decision in rows if "task_progress_executed" in decision]
+        reject_count = sum(1 for decision in rows if str(decision.get("decision", "")) == "reject")
+        allow_count = sum(1 for decision in rows if str(decision.get("decision", "")) == "allow")
+        runtime_values = [
+            runtime
+            for runtime in (_float_or_none(decision.get("runtime_ms")) for decision in rows)
+            if runtime is not None
+        ]
+        solver_non_ok = [
+            decision
+            for decision in rows
+            if any(
+                token in str(decision.get("solver_status", "")).lower()
+                for token in ("violated", "infeasible", "failed")
+            )
+        ]
         if rows_with_progress:
             progress_count = sum(_int(decision.get("task_progress_executed")) for decision in rows_with_progress)
             progress_denominator = len(rows_with_progress)
@@ -889,6 +916,14 @@ def _augment_method_summary_with_task_progress(
         row.update(
             {
                 "decision_count": decision_count,
+                "allow_count": allow_count,
+                "reject_count": reject_count,
+                "reject_rate_per_decision": reject_count / decision_count if decision_count else None,
+                "runtime_ms_p50": _percentile(runtime_values, 0.50),
+                "runtime_ms_p90": _percentile(runtime_values, 0.90),
+                "runtime_ms_p99": _percentile(runtime_values, 0.99),
+                "solver_non_ok_count": len(solver_non_ok),
+                "solver_non_ok_rate": len(solver_non_ok) / decision_count if decision_count else None,
                 "candidate_skill_executed_count": len(intended_executed),
                 "candidate_skill_executed_rate": (
                     len(intended_executed) / decision_count if decision_count else None
@@ -1305,6 +1340,29 @@ def _float_or_none(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return output if math.isfinite(output) else None
+
+
+def _percentile(values: list[float], q: float) -> float | None:
+    finite = sorted(value for value in values if math.isfinite(value))
+    if not finite:
+        return None
+    q = min(1.0, max(0.0, q))
+    index = min(len(finite) - 1, int(math.ceil(q * len(finite))) - 1)
+    return float(finite[max(0, index)])
+
+
+def _parse_violation_types(value: Any) -> list[str]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item)]
+    try:
+        loaded = json.loads(str(value))
+    except json.JSONDecodeError:
+        return [item.strip() for item in str(value).split(",") if item.strip()]
+    if not isinstance(loaded, list):
+        return []
+    return [str(item) for item in loaded if str(item)]
 
 
 def _decision_key(row: dict[str, Any]) -> tuple[str, int, int, int]:

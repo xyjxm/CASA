@@ -38,6 +38,7 @@ from gear_sonic.casa.phase5 import (  # noqa: E402
     write_csv,
     write_json,
 )
+from gear_sonic.casa.phase5_online import method_summary_rows as online_method_summary_rows  # noqa: E402
 from gear_sonic.casa.phase5_policy import (  # noqa: E402
     ONLINE_METHOD_ORDER,
     evaluate_online_method,
@@ -169,27 +170,27 @@ def main() -> None:
                 decision_rows.extend(decisions)
                 write_csv(output_dir / "online_episode_results.csv", episode_rows)
                 write_csv(output_dir / "gate_decisions.csv", decision_rows)
-                write_json(output_dir / "method_summary.json", _method_summary(episode_rows))
+                write_json(output_dir / "method_summary.json", _method_summary(episode_rows, decision_rows))
                 abort_after_upright_failure = (
                     row.get("status") == "initial_upright_failed"
                     and not args.continue_after_initial_upright_failure
                 )
                 if abort_after_upright_failure:
-                    write_csv(output_dir / "method_summary.csv", _method_summary_rows(episode_rows))
+                    write_csv(output_dir / "method_summary.csv", _method_summary_rows(episode_rows, decision_rows))
                     write_json(
                         output_dir / "online_experiment_manifest.json",
                         _manifest(args, output_dir, methods, seeds, episodes_per_seed)
                         | {"aborted_after_initial_upright_failure": True},
                     )
-                    print(json.dumps(_method_summary(episode_rows), indent=2, sort_keys=True))
+                    print(json.dumps(_method_summary(episode_rows, decision_rows), indent=2, sort_keys=True))
                     return
-    write_csv(output_dir / "method_summary.csv", _method_summary_rows(episode_rows))
+    write_csv(output_dir / "method_summary.csv", _method_summary_rows(episode_rows, decision_rows))
     write_json(
         output_dir / "online_experiment_manifest.json",
         _manifest(args, output_dir, methods, seeds, episodes_per_seed)
         | {"aborted_after_initial_upright_failure": False},
     )
-    print(json.dumps(_method_summary(episode_rows), indent=2, sort_keys=True))
+    print(json.dumps(_method_summary(episode_rows, decision_rows), indent=2, sort_keys=True))
 
 
 def _manifest(
@@ -408,7 +409,7 @@ class Phase5Gate:
                 "adapters": self.sota_registry.metadata(),
             }
         try:
-            rows = read_prediction_rows(predictions_csv)
+            rows = _attach_phase4_feature_vectors(phase4_root, read_prediction_rows(predictions_csv))
         except Exception as exc:  # noqa: BLE001 - online Plan A methods must remain usable.
             return {
                 "status": "calibration_failed",
@@ -416,11 +417,16 @@ class Phase5Gate:
                 "error": repr(exc),
                 "adapters": self.sota_registry.metadata(),
             }
+        train_rows = [row for row in rows if split_role(row.get("phase4_split")) == "train"]
+        val_rows = [row for row in rows if split_role(row.get("phase4_split")) == "critic_val"]
         calibration_rows = [row for row in rows if split_role(row.get("phase4_split")) == "calibration"]
+        self.sota_registry.fit(train_rows, val_rows)
         self.sota_registry.calibrate(calibration_rows)
         return {
             "status": "calibrated",
             "predictions_csv": str(predictions_csv),
+            "train_rows": len(train_rows),
+            "val_rows": len(val_rows),
             "calibration_rows": len(calibration_rows),
             "adapters": self.sota_registry.metadata(),
         }
@@ -1404,6 +1410,36 @@ def _slice_sim_log(source: Path, destination: Path, start_wall_time: float, end_
     return destination
 
 
+def _attach_phase4_feature_vectors(
+    phase4_root: Path,
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows = [dict(row) for row in rows]
+    split_to_npz = {
+        "train": phase4_root / "dataset_v1" / "features_train.npz",
+        "calibration": phase4_root / "dataset_v1" / "features_calibration.npz",
+        "test": phase4_root / "dataset_v1" / "features_test.npz",
+    }
+    for split, npz_path in split_to_npz.items():
+        split_indexes = [
+            index for index, row in enumerate(rows) if split_role(row.get("phase4_split")) == split
+        ]
+        if not split_indexes or not npz_path.exists():
+            continue
+        try:
+            data = np.load(npz_path, allow_pickle=False)
+            features = data["X"]
+            feature_names = tuple(str(name) for name in data["feature_names"])
+        except Exception:
+            continue
+        if len(split_indexes) != int(features.shape[0]):
+            continue
+        for feature_index, row_index in enumerate(split_indexes):
+            rows[row_index]["_feature_vector"] = features[feature_index]
+            rows[row_index]["_feature_names"] = feature_names
+    return rows
+
+
 def _read_recent_sim_rows(path: Path, tail_bytes: int = 16 * 1024 * 1024) -> list[dict[str, Any]]:
     """Read only the tail of a live sim log for online gating.
 
@@ -1430,34 +1466,18 @@ def _read_recent_sim_rows(path: Path, tail_bytes: int = 16 * 1024 * 1024) -> lis
     return list(csv.DictReader([header, *lines]))
 
 
-def _method_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    return {"methods": {row["method"]: row for row in _method_summary_rows(rows)}}
+def _method_summary(
+    rows: list[dict[str, Any]],
+    decision_rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return {"methods": {row["method"]: row for row in _method_summary_rows(rows, decision_rows)}}
 
 
-def _method_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    output = []
-    for method in _parse_methods(",".join(ONLINE_METHOD_ORDER)):
-        method_rows = [row for row in rows if row.get("method") == method]
-        if not method_rows:
-            continue
-        count = len(method_rows)
-        output.append(
-            {
-                "method": method,
-                "method_display": method_display(method),
-                "episode_count": count,
-                "task_success_rate": sum(int(row.get("task_success", 0)) for row in method_rows) / count,
-                "unsafe_invocation_count": sum(int(row.get("unsafe_invocation_count", 0)) for row in method_rows),
-                "fallback_count": sum(int(row.get("fallback_count", 0)) for row in method_rows),
-                "mean_completion_time_s": (
-                    sum(float(row.get("completion_time_s", 0.0)) for row in method_rows) / count
-                ),
-                "failed_or_unverified": sum(
-                    1 for row in method_rows if row.get("status") not in {"completed"}
-                ),
-            }
-        )
-    return output
+def _method_summary_rows(
+    rows: list[dict[str, Any]],
+    decision_rows: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    return online_method_summary_rows(rows, decision_rows)
 
 
 def _parse_methods(raw: str) -> list[str]:

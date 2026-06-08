@@ -11,20 +11,26 @@ from gear_sonic.casa.baselines.sota_adapters.api import (
     SotaDecisionContext,
 )
 from gear_sonic.casa.baselines.sota_adapters.methods import (
-    CRCCBFAdapted,
+    CLBFLBACAdapted,
     MPCCBFHumanoidAdapted,
     PCBFAdapted,
+    SAFERSplatCBFAdapted,
+    SafeDPAAdapted,
 )
 
 SOTA_METHOD_ORDER = (
+    "safedpa_adapted",
     "pcbf_adapted",
-    "crc_cbf_adapted",
+    "safer_splat_cbf_adapted",
     "mpc_cbf_humanoid_adapted",
+    "clbf_lbac_adapted",
 )
 SOTA_METHOD_DISPLAY = {
+    "safedpa_adapted": "SafeDPA-adapted",
     "pcbf_adapted": "PCBF-adapted",
-    "crc_cbf_adapted": "CRC-CBF-adapted",
+    "safer_splat_cbf_adapted": "SAFER-Splat-CBF-adapted",
     "mpc_cbf_humanoid_adapted": "MPC-CBF-Humanoid-adapted",
+    "clbf_lbac_adapted": "CLBF-LBAC-adapted",
 }
 
 
@@ -45,6 +51,15 @@ class SotaBaselineRegistry:
     ) -> None:
         for adapter in self.adapters.values():
             adapter.calibrate(calibration_data, config)
+
+    def fit(
+        self,
+        train_data: Sequence[Mapping[str, Any]],
+        val_data: Sequence[Mapping[str, Any]],
+        config: SotaAdapterConfig | None = None,
+    ) -> None:
+        for adapter in self.adapters.values():
+            adapter.fit(train_data, val_data, config)
 
     def decide(self, method: str, context: SotaDecisionContext) -> GateDecision:
         try:
@@ -69,9 +84,11 @@ class SotaBaselineRegistry:
 def build_sota_registry(config: SotaAdapterConfig | None = None) -> SotaBaselineRegistry:
     return SotaBaselineRegistry(
         [
+            SafeDPAAdapted(config),
             PCBFAdapted(config),
-            CRCCBFAdapted(config),
+            SAFERSplatCBFAdapted(config),
             MPCCBFHumanoidAdapted(config),
+            CLBFLBACAdapted(config),
         ]
     )
 

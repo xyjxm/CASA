@@ -10,6 +10,15 @@ from gear_sonic.casa.baselines.sota_adapters import SOTA_METHOD_ORDER, SotaDecis
 from gear_sonic.casa.phase5_policy import ONLINE_METHOD_ORDER, method_display
 
 
+REQUIRED_SOTA_METHODS = {
+    "safedpa_adapted",
+    "pcbf_adapted",
+    "safer_splat_cbf_adapted",
+    "mpc_cbf_humanoid_adapted",
+    "clbf_lbac_adapted",
+}
+
+
 def test_sota_registry_decision_shape() -> None:
     registry = build_sota_registry()
     calibration_rows = [
@@ -19,6 +28,8 @@ def test_sota_registry_decision_shape() -> None:
         _prediction_row("cal_unsafe_turn", "calibration", "turn", 1, 0.88, 0.25, 0),
     ]
     registry.calibrate(calibration_rows)
+
+    assert set(SOTA_METHOD_ORDER) == REQUIRED_SOTA_METHODS
 
     context = SotaDecisionContext(
         skill_name="walk",
@@ -37,6 +48,7 @@ def test_sota_registry_decision_shape() -> None:
         assert isinstance(decision.allow, bool)
         assert decision.runtime_ms is not None
         assert decision.solver_status
+        assert decision.diagnostics
 
 
 def test_sota_methods_are_online_registered() -> None:

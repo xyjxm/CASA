@@ -37,10 +37,10 @@ METHODS: list[dict[str, Any]] = [
             "https://research.tudelft.nl/en/publications/reinforcement-learning-for-safe-robot-control-using-control-lyapu",
             "https://arxiv.org/abs/2305.09793",
         ],
-        "implemented_in_this_run": False,
+        "implemented_in_this_run": True,
         "main_table_fidelity_label": "paper_faithful_proxy",
         "casa_adaptation_route": "learned CLBF-style score gate over CASA skill candidates",
-        "notes": "Venue/title/authors verified; no official code URL was verified in this run.",
+        "notes": "Implemented as a learned CLBF-style CASA gate; no official code URL was verified in this run.",
     },
     {
         "method_name": "safedpa_adapted",
@@ -63,10 +63,13 @@ METHODS: list[dict[str, Any]] = [
             "https://arxiv.org/abs/2310.08602",
             "https://github.com/LeCAR-Lab/SafeDPA",
         ],
-        "implemented_in_this_run": False,
+        "implemented_in_this_run": True,
         "main_table_fidelity_label": "paper_faithful_proxy",
         "casa_adaptation_route": "dynamics-adaptation CBF gate/filter over frozen CASA skill commands",
-        "notes": "Official repo and MIT license verified, but this run does not integrate or execute that code.",
+        "notes": (
+            "Official repo and MIT license were previously verified; this run uses a "
+            "CASA paper-faithful proxy rather than integrating the official code."
+        ),
     },
     {
         "method_name": "pcbf_adapted",
@@ -131,12 +134,12 @@ METHODS: list[dict[str, Any]] = [
             "https://arxiv.org/abs/2409.09868",
             "https://github.com/chengine/safer-splat",
         ],
-        "implemented_in_this_run": False,
+        "implemented_in_this_run": True,
         "main_table_fidelity_label": "paper_faithful_proxy",
         "casa_adaptation_route": "MuJoCo obstacle/user proxy map to Gaussian/ellipsoid CBF gate",
         "notes": (
-            "Official repo verified, but CASA adaptation would use MuJoCo map proxies "
-            "unless exact code is integrated later."
+            "Implemented as a MuJoCo oracle-map Gaussian/ellipsoid CBF proxy; "
+            "official code is not integrated in this run."
         ),
     },
     {
@@ -160,7 +163,7 @@ METHODS: list[dict[str, Any]] = [
             "https://arxiv.org/abs/2603.10392",
             "https://eurekamag.com/research/103/587/103587483.php",
         ],
-        "implemented_in_this_run": True,
+        "implemented_in_this_run": False,
         "main_table_fidelity_label": "paper_faithful_proxy",
         "casa_adaptation_route": "conformal-risk-calibrated CBF gate over CASA skill candidates",
         "notes": "Project/paper metadata verified; no repository URL was verified, so not exact_code.",

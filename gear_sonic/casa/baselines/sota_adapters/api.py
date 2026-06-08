@@ -112,7 +112,7 @@ class SotaBaselineAdapter(ABC):
         self.calibration_summary["fit"] = {
             "train_rows": len(train_data),
             "val_rows": len(val_data),
-            "note": "first_slice_adapters_use_calibration_only",
+            "note": "adapter_default_fit_noop",
         }
 
     def calibrate(

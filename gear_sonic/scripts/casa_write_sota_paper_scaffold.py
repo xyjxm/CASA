@@ -13,14 +13,20 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-FIRST_SLICE_METHODS = ("pcbf_adapted", "crc_cbf_adapted", "mpc_cbf_humanoid_adapted")
+SOTA_METHODS = (
+    "safedpa_adapted",
+    "pcbf_adapted",
+    "safer_splat_cbf_adapted",
+    "mpc_cbf_humanoid_adapted",
+    "clbf_lbac_adapted",
+)
 FULL_METHODS = (
     "sonic_only",
     "hard_contract",
     "raw_critic_0p5",
     "global_conformal",
     "casa_a_per_skill",
-    *FIRST_SLICE_METHODS,
+    *SOTA_METHODS,
 )
 
 
@@ -59,7 +65,7 @@ def main() -> None:
     manifest = {
         "phase": "CASA adapted SOTA full online evaluation manifest",
         "methods": list(FULL_METHODS),
-        "first_slice_sota_methods": list(FIRST_SLICE_METHODS),
+        "sota_methods": list(SOTA_METHODS),
         "implemented_sota_metadata_methods": [item["method_name"] for item in implemented],
         "seeds": [1234, 1235, 1236, 1237, 1238],
         "episodes_per_seed": 100,
