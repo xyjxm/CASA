@@ -39,6 +39,11 @@ from gear_sonic.casa.phase5 import (  # noqa: E402
     write_json,
 )
 from gear_sonic.casa.phase5_online import method_summary_rows as online_method_summary_rows  # noqa: E402
+from gear_sonic.casa.phase5_hybrid import (  # noqa: E402
+    decide_phase5_hybrid,
+    is_hybrid_method,
+    load_phase5_hybrid_config,
+)
 from gear_sonic.casa.phase5_policy import (  # noqa: E402
     ONLINE_METHOD_ORDER,
     evaluate_online_method,
@@ -114,6 +119,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recheck-before-segment", action="store_true")
     parser.add_argument("--threshold-scale-global", type=float, default=1.0)
     parser.add_argument("--threshold-scale-by-skill", default="")
+    parser.add_argument("--hybrid-config", type=Path)
     parser.add_argument("--randomize-method-order", action="store_true")
     parser.add_argument("--method-order-seed", type=int, default=0)
     return parser.parse_args()
@@ -143,8 +149,10 @@ def main() -> None:
         thresholds,
         pre_window_seconds=args.pre_window_seconds,
         require_model=not args.dry_run,
+        hybrid_config_path=args.hybrid_config,
     )
     write_json(output_dir / "sota_adapter_calibration.json", gate.sota_calibration_summary)
+    write_json(output_dir / "hybrid_config_summary.json", gate.hybrid_config.to_dict())
     oracle = SafetyOracle()
     episode_rows = []
     decision_rows = []
@@ -216,6 +224,7 @@ def _manifest(
             "thresholds_json": str(args.phase5_root / "conformal_thresholds.json"),
             "raw_critic_checkpoint": str(args.phase4_root / "raw_critic" / "raw_critic.pt"),
             "feature_schema": str(args.phase4_root / "dataset_v1" / "feature_schema.json"),
+            "hybrid_config": "" if args.hybrid_config is None else str(args.hybrid_config),
         },
         "runtime_inputs": {
             "sim_log_dir": "" if args.sim_log_dir is None else str(args.sim_log_dir),
@@ -262,6 +271,7 @@ class Phase5Gate:
         *,
         pre_window_seconds: float,
         require_model: bool,
+        hybrid_config_path: Path | None,
     ) -> None:
         self.torch = None
         self.model = None
@@ -311,6 +321,7 @@ class Phase5Gate:
         self.previous_skill_event: dict[str, Any] | None = None
         self.sota_registry = build_sota_registry()
         self.sota_calibration_summary = self._calibrate_sota_adapters(phase4_root)
+        self.hybrid_config = load_phase5_hybrid_config(hybrid_config_path)
 
     def decide(
         self,
@@ -322,6 +333,16 @@ class Phase5Gate:
     ) -> dict[str, Any]:
         feature_vector, hard_score, hard_fixed = self._features(skill, sim_log_dir, scene_props)
         raw_risk = self._risk(feature_vector)
+        if is_hybrid_method(method):
+            return self._decide_hybrid(
+                method=method,
+                skill=skill,
+                scene_props=scene_props,
+                feature_vector=feature_vector,
+                raw_risk=raw_risk,
+                hard_score=hard_score,
+                hard_fixed=hard_fixed,
+            )
         if is_sota_method(method):
             return self._decide_sota(
                 method=method,
@@ -352,6 +373,48 @@ class Phase5Gate:
             "reject_reason": policy_decision.reject_reason,
         }
 
+    def _decide_hybrid(
+        self,
+        *,
+        method: str,
+        skill: Any,
+        scene_props: dict[str, Any],
+        feature_vector: np.ndarray,
+        raw_risk: float,
+        hard_score: float,
+        hard_fixed: bool,
+    ) -> dict[str, Any]:
+        context = self._sota_context(
+            skill=skill,
+            scene_props=scene_props,
+            feature_vector=feature_vector,
+            raw_risk=raw_risk,
+            hard_score=hard_score,
+            hard_fixed=hard_fixed,
+        )
+        casa_decision = evaluate_online_method(
+            method="casa_a_per_skill",
+            skill_name=skill.name,
+            raw_risk=raw_risk,
+            hard_contract_fixed_reject=bool(hard_fixed),
+            thresholds=self.thresholds,
+        )
+        decision = decide_phase5_hybrid(
+            method=method,
+            context=context,
+            casa_decision=casa_decision,
+            sota_registry=self.sota_registry,
+            config=self.hybrid_config,
+        )
+        return self._gate_decision_row(
+            method=method,
+            skill=skill,
+            raw_risk=raw_risk,
+            hard_score=hard_score,
+            hard_fixed=hard_fixed,
+            decision=decision,
+        )
+
     def _decide_sota(
         self,
         *,
@@ -363,7 +426,35 @@ class Phase5Gate:
         hard_score: float,
         hard_fixed: bool,
     ) -> dict[str, Any]:
-        context = SotaDecisionContext(
+        context = self._sota_context(
+            skill=skill,
+            scene_props=scene_props,
+            feature_vector=feature_vector,
+            raw_risk=raw_risk,
+            hard_score=hard_score,
+            hard_fixed=hard_fixed,
+        )
+        decision = self.sota_registry.decide(method, context)
+        return self._gate_decision_row(
+            method=method,
+            skill=skill,
+            raw_risk=raw_risk,
+            hard_score=hard_score,
+            hard_fixed=hard_fixed,
+            decision=decision,
+        )
+
+    def _sota_context(
+        self,
+        *,
+        skill: Any,
+        scene_props: dict[str, Any],
+        feature_vector: np.ndarray,
+        raw_risk: float,
+        hard_score: float,
+        hard_fixed: bool,
+    ) -> SotaDecisionContext:
+        return SotaDecisionContext(
             skill_name=skill.name,
             skill_params=skill.params(),
             raw_critic_risk=raw_risk,
@@ -374,7 +465,17 @@ class Phase5Gate:
             feature_names=self.feature_names,
             scene_props=scene_props,
         )
-        decision = self.sota_registry.decide(method, context)
+
+    def _gate_decision_row(
+        self,
+        *,
+        method: str,
+        skill: Any,
+        raw_risk: float,
+        hard_score: float,
+        hard_fixed: bool,
+        decision: Any,
+    ) -> dict[str, Any]:
         return {
             "method": method,
             "candidate_skill": skill.name,

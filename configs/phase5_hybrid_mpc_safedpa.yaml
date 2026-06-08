@@ -1,0 +1,28 @@
+default_strategy: gray_refine
+anchors:
+  - mpc_cbf_humanoid_adapted
+  - safedpa_adapted
+method_strategies:
+  casa_h_mpc_safedpa_anchor_or: anchor_or
+  casa_h_mpc_safedpa_consensus: consensus
+  casa_h_mpc_safedpa_gray_refine: gray_refine
+  casa_h_mpc_safedpa_budgeted_selector: budgeted_selector
+  casa_h_mpc_safedpa_calibrated_ensemble: calibrated_ensemble
+  casa_h_mpc_safedpa_casa_refine: gray_refine
+hard_contract_veto: true
+gray_refine:
+  gray_margin: 0.06
+  gray_anchor_reject_votes: 2
+  outside_gray_anchor_veto_votes: 2
+consensus:
+  reject_votes: 2
+budgeted_selector:
+  high_confidence_margin: 0.12
+  rescue_margin: 0.04
+calibrated_ensemble:
+  weights:
+    casa_a_per_skill: 0.50
+    mpc_cbf_humanoid_adapted: 0.25
+    safedpa_adapted: 0.25
+  threshold: 0.0
+  margin_scale: 1.0

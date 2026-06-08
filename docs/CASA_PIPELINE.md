@@ -125,11 +125,23 @@ Representative scripts:
 - `gear_sonic/scripts/casa_audit_phase5_online.py`
 - `gear_sonic/scripts/casa_diagnose_phase5_online_failures.py`
 - `gear_sonic/scripts/casa_sweep_phase5_online_policy.py`
+- `gear_sonic/scripts/casa_calibrate_phase5_hybrid.py`
+- `gear_sonic/scripts/casa_sweep_phase5_hybrid.py`
+- `gear_sonic/scripts/casa_audit_phase5_hybrid.py`
 - `gear_sonic/scripts/casa_audit_phase5_acceptance.py`
 - `gear_sonic/scripts/casa_write_phase5_report.py`
 
 The five methods are SONIC-only, SONIC plus hard contract, SONIC plus raw critic,
 SONIC plus global conformal, and SONIC plus CASA-A per-skill conformal.
+
+CASA-Hybrid is a Phase 5 extension, not the original CASA-A result. The final
+method name is `casa_h_mpc_safedpa_casa_refine`. The default config
+`configs/phase5_hybrid_mpc_safedpa.yaml` maps that method to `gray_refine`,
+keeps original `casa_a_per_skill` unchanged, and uses the existing
+`mpc_cbf_humanoid_adapted` and `safedpa_adapted` SOTA adapters as anchors.
+Hybrid calibration and sweep scripts operate on Phase 4 calibration rows only;
+the final held-out online test must not be used for threshold or strategy
+tuning.
 
 Phase 5 validates `raw_critic/predictions.csv` before threshold selection. The
 CSV must contain `sample_id`, `phase4_split`, `skill_name`, `label`,
@@ -177,6 +189,37 @@ python gear_sonic/scripts/casa_run_phase5_online_main_lowmem.py \
   --episodes-per-seed 100 \
   --methods sonic_only,hard_contract,raw_critic_0p5,global_conformal,casa_a_per_skill
 ```
+
+For the CASA-Hybrid held-out comparison, include the two adapted SOTA anchors
+and pass the hybrid config through the low-memory runner:
+
+```bash
+python gear_sonic/scripts/casa_run_phase5_online_main_lowmem.py \
+  --online-root outputs/casa/phase5_hybrid_mpc_safedpa_full/online_full_5seed100 \
+  --methods sonic_only,hard_contract,raw_critic_0p5,global_conformal,casa_a_per_skill,mpc_cbf_humanoid_adapted,safedpa_adapted,casa_h_mpc_safedpa_casa_refine \
+  --casa-method casa_h_mpc_safedpa_casa_refine \
+  --hybrid-config configs/phase5_hybrid_mpc_safedpa.yaml \
+  --seeds 3001,3002,3003,3004,3005 \
+  --episodes-per-seed 100 \
+  --max-parallel 3 \
+  --chunk-size 25 \
+  --max-sweeps 6
+```
+
+After the run is merged, audit the hybrid claim separately:
+
+```bash
+python gear_sonic/scripts/casa_audit_phase5_hybrid.py \
+  --online-dir outputs/casa/phase5_hybrid_mpc_safedpa_full/online_full_5seed100/merged \
+  --hybrid-method casa_h_mpc_safedpa_casa_refine
+```
+
+The hybrid audit explicitly reports whether the hybrid exceeds
+`mpc_cbf_humanoid_adapted`, `safedpa_adapted`, and `casa_a_per_skill`; whether a
+win is only due to additional fallback/reject intervention; and whether matched
+intervention-budget checks pass. If the hybrid does not exceed the anchors, the
+correct output is the Pareto frontier and next-step recommendations, not a
+success claim.
 
 For an already merged online directory, rerun only the audit:
 

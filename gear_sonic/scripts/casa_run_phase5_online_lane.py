@@ -61,6 +61,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recheck-before-segment", action="store_true")
     parser.add_argument("--threshold-scale-global", type=float, default=1.0)
     parser.add_argument("--threshold-scale-by-skill", default="")
+    parser.add_argument("--hybrid-config", type=Path)
     parser.add_argument("--randomize-method-order", action="store_true")
     parser.add_argument("--method-order-seed", type=int, default=0)
     parser.add_argument("--sim-cpus", default="")
@@ -174,6 +175,8 @@ def main() -> None:
             "--casa-props-ack-file",
             str(ack_file),
         ]
+        if args.hybrid_config is not None:
+            online_cmd.extend(["--hybrid-config", str(args.hybrid_config)])
         if args.segment_long_skills:
             online_cmd.append("--segment-long-skills")
         if args.recheck_before_segment:
@@ -221,6 +224,7 @@ def main() -> None:
             "recheck_before_segment": bool(args.recheck_before_segment),
             "threshold_scale_global": args.threshold_scale_global,
             "threshold_scale_by_skill": args.threshold_scale_by_skill,
+            "hybrid_config": "" if args.hybrid_config is None else str(args.hybrid_config),
             "randomize_method_order": bool(args.randomize_method_order),
             "method_order_seed": args.method_order_seed,
         },

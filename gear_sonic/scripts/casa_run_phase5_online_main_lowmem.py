@@ -66,6 +66,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recheck-before-segment", action="store_true")
     parser.add_argument("--threshold-scale-global", type=float, default=1.0)
     parser.add_argument("--threshold-scale-by-skill", default="")
+    parser.add_argument("--hybrid-config", type=Path)
     parser.add_argument("--randomize-method-order", action="store_true")
     parser.add_argument("--method-order-seed", type=int, default=0)
     return parser.parse_args()
@@ -176,6 +177,7 @@ def print_effective_policy(args: argparse.Namespace) -> None:
         f"max_segment_duration={args.max_segment_duration} "
         f"threshold_scale_global={args.threshold_scale_global} "
         f"threshold_scale_by_skill={args.threshold_scale_by_skill} "
+        f"hybrid_config={'' if getattr(args, 'hybrid_config', None) is None else args.hybrid_config} "
         f"randomize_method_order={int(bool(args.randomize_method_order))} "
         f"method_order_seed={args.method_order_seed}",
         flush=True,
@@ -364,6 +366,9 @@ def lane_cmd(args: argparse.Namespace, job: dict[str, Any], device: str) -> list
         "--cuda-visible-devices",
         device,
     ]
+    hybrid_config = getattr(args, "hybrid_config", None)
+    if hybrid_config is not None:
+        cmd.extend(["--hybrid-config", str(hybrid_config)])
     if args.segment_long_skills:
         cmd.append("--segment-long-skills")
     if args.recheck_before_segment:

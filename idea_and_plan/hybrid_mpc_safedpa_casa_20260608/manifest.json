@@ -1,0 +1,108 @@
+{
+  "timestamp_local": "2026-06-09T04:05:11+08:00",
+  "phase": "CASA-Hybrid Phase5 held-out online anchor audit",
+  "hybrid_method": "casa_h_mpc_safedpa_casa_refine",
+  "default_strategy": "gray_refine",
+  "full_output_path": "/mnt/data/students/lph/recording/phase5_hybrid_mpc_safedpa_full_20260608_121746/online_full_5seed100",
+  "merged_output_path": "/mnt/data/students/lph/recording/phase5_hybrid_mpc_safedpa_full_20260608_121746/online_full_5seed100/merged",
+  "source_artifact_paths": [
+    "gear_sonic/casa/phase5_hybrid.py",
+    "gear_sonic/casa/phase5_policy.py",
+    "gear_sonic/scripts/casa_run_phase5_online_experiment.py",
+    "gear_sonic/scripts/casa_run_phase5_online_lane.py",
+    "gear_sonic/scripts/casa_run_phase5_online_main_lowmem.py",
+    "configs/phase5_hybrid_mpc_safedpa.yaml",
+    "gear_sonic/scripts/casa_calibrate_phase5_hybrid.py",
+    "gear_sonic/scripts/casa_sweep_phase5_hybrid.py",
+    "gear_sonic/scripts/casa_audit_phase5_hybrid.py",
+    "gear_sonic/tests/casa/test_phase5_hybrid_mpc_safedpa.py"
+  ],
+  "methods": [
+    "sonic_only",
+    "hard_contract",
+    "raw_critic_0p5",
+    "global_conformal",
+    "casa_a_per_skill",
+    "mpc_cbf_humanoid_adapted",
+    "safedpa_adapted",
+    "casa_h_mpc_safedpa_casa_refine"
+  ],
+  "seeds": [
+    3001,
+    3002,
+    3003,
+    3004,
+    3005
+  ],
+  "episodes_per_seed": 100,
+  "completed_unique_episodes": 4000,
+  "generated_report_filenames": [
+    "online_report.md",
+    "online_go_no_go.json",
+    "online_acceptance_audit.json",
+    "method_summary.csv",
+    "method_summary.json",
+    "hybrid_anchor_audit.json",
+    "hybrid_anchor_audit.md",
+    "merge_rerun.log"
+  ],
+  "commands_used": {
+    "final_resume_online": ".venv_sim/bin/python -u gear_sonic/scripts/casa_run_phase5_online_main_lowmem.py --phase4-root /mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase4_dataset_v1_strict_50k_20260522 --phase5-root /mnt/data/students/lph/GR00T-WholeBodyControl/outputs/casa/phase5_conformal_baselines_20260522 --online-root /mnt/data/students/lph/recording/phase5_hybrid_mpc_safedpa_full_20260608_121746/online_full_5seed100 --methods sonic_only,hard_contract,raw_critic_0p5,global_conformal,casa_a_per_skill,mpc_cbf_humanoid_adapted,safedpa_adapted,casa_h_mpc_safedpa_casa_refine --casa-method casa_h_mpc_safedpa_casa_refine --hybrid-config configs/phase5_hybrid_mpc_safedpa.yaml --seeds 3001,3002,3003,3004,3005 --episodes-per-seed 100 --max-parallel 2 --chunk-size 25 --max-sweeps 6 --cuda-devices 0,1",
+    "merge_rerun": ".venv_sim/bin/python gear_sonic/scripts/casa_merge_phase5_online_results.py --online-root /mnt/data/students/lph/recording/phase5_hybrid_mpc_safedpa_full_20260608_121746/online_full_5seed100 --output-dir /mnt/data/students/lph/recording/phase5_hybrid_mpc_safedpa_full_20260608_121746/online_full_5seed100/merged --expected-episodes 4000 --expected-methods sonic_only,hard_contract,raw_critic_0p5,global_conformal,casa_a_per_skill,mpc_cbf_humanoid_adapted,safedpa_adapted,casa_h_mpc_safedpa_casa_refine --expected-seeds 3001,3002,3003,3004,3005 --episodes-per-seed 100 --skills-per-episode 8 --casa-method casa_h_mpc_safedpa_casa_refine",
+    "hybrid_audit": ".venv_sim/bin/python gear_sonic/scripts/casa_audit_phase5_hybrid.py --online-dir /mnt/data/students/lph/recording/phase5_hybrid_mpc_safedpa_full_20260608_121746/online_full_5seed100/merged --hybrid-method casa_h_mpc_safedpa_casa_refine"
+  },
+  "run_notes": [
+    "The run was resumed multiple times on the same online root.",
+    "Concurrency was raised from 3 to 4 only while CPU stayed below the requested threshold and no lane failures were observed.",
+    "Concurrency was later reduced to 3 and then 2 after deploy readiness timeouts.",
+    "The final lowmem resume reached 4000/4000 completed unique episodes.",
+    "The initial lowmem merge subprocess returned non-zero after producing artifacts; the same merge command was rerun manually and exited 0.",
+    "No final held-out test tuning was performed."
+  ],
+  "final_audit_conclusion": "PARTIAL: casa_h_mpc_safedpa_casa_refine exceeds ['casa_a_per_skill'], but matched-budget or remaining-anchor checks do not all pass.",
+  "hybrid_beats_mpc_cbf_humanoid": false,
+  "hybrid_beats_safedpa": false,
+  "hybrid_beats_casa_a": true,
+  "matched_intervention_budget_passes_all_anchors": false,
+  "hybrid_win_depends_on_more_fallback_or_reject": false,
+  "selected_metrics": {
+    "casa_h_mpc_safedpa_casa_refine": {
+      "task_success_rate": 0.21,
+      "task_progress_success_rate": 0.53675,
+      "unsafe_invocation_rate_per_episode": 3.192,
+      "fallback_rate_per_episode": 3.706,
+      "reject_rate_per_decision": 0.46325
+    },
+    "mpc_cbf_humanoid_adapted": {
+      "task_success_rate": 0.532,
+      "task_progress_success_rate": 0.53375,
+      "unsafe_invocation_rate_per_episode": 2.268,
+      "fallback_rate_per_episode": 3.73,
+      "reject_rate_per_decision": 0.46625
+    },
+    "safedpa_adapted": {
+      "task_success_rate": 0.138,
+      "task_progress_success_rate": 0.5665,
+      "unsafe_invocation_rate_per_episode": 3.198,
+      "fallback_rate_per_episode": 3.468,
+      "reject_rate_per_decision": 0.4335
+    },
+    "casa_a_per_skill": {
+      "task_success_rate": 0.096,
+      "task_progress_success_rate": 0.486,
+      "unsafe_invocation_rate_per_episode": 5.186,
+      "fallback_rate_per_episode": 4.112,
+      "reject_rate_per_decision": 0.514
+    }
+  },
+  "report_sha256": {
+    "online_report.md": "b6e4e2d653b2670fc662e8cc7575b0493a7cc557dee3f2125ffa43c5d0ba975b",
+    "online_go_no_go.json": "607c611acdd78b49b4fc110fb6a4ab674d1c06a03c404e8c86a0de5920112faa",
+    "online_acceptance_audit.json": "39c22c85c4493aef8b078049a10527acb4fcad5445aaeda87c4982f29527c2eb",
+    "method_summary.csv": "753c8a36cf7f8de7ca3feaa57746c2ec9fff0d7204606dd1060d0a66937a2efe",
+    "method_summary.json": "6c43fd4f35cc43c7578e61ea4af0dc76eb017f4e36d93aed03c2f9f2e8acc001",
+    "hybrid_anchor_audit.json": "c4416a0b1bbbdf993000d35bd53a331bd6c7f0bdc874b5eef830182eeb86c058",
+    "hybrid_anchor_audit.md": "88ef62353feb1448ac4fea5fba9a46524786ec87f9bfb5a18b0021c7bb3010ca",
+    "merge_rerun.log": "39c22c85c4493aef8b078049a10527acb4fcad5445aaeda87c4982f29527c2eb"
+  }
+}

@@ -64,6 +64,9 @@ CASA scripts use the `casa_*.py` prefix.
 | `casa_visualize_phase5_online.py` | Generate five-baseline charts, heatmaps, selected episode timelines, metric timeline animations, and visualization reports from online audit artifacts |
 | `casa_diagnose_phase5_online_failures.py` | Decompose an online no-go artifact into gate, recovery, skill, and hygiene failures |
 | `casa_sweep_phase5_online_policy.py` | Plan or summarize Phase 5 online policy pilot sweeps |
+| `casa_calibrate_phase5_hybrid.py` | Replay CASA-Hybrid methods on the Phase 4 calibration split and write calibration-only metrics/config suggestions |
+| `casa_sweep_phase5_hybrid.py` | Sweep CASA-Hybrid configs on calibration rows and optionally emit online run commands for non-final candidates |
+| `casa_audit_phase5_hybrid.py` | Audit held-out online CASA-Hybrid results against MPC-CBF-Humanoid, SafeDPA, and CASA-A anchors |
 | `casa_audit_phase5_acceptance.py` | Audit Phase 5 acceptance criteria |
 | `casa_write_phase5_report.py` | Write the Phase 5 conformal baseline report |
 
@@ -89,6 +92,17 @@ Phase 5 online performance iteration notes:
 - `casa_run_phase5_online_main_lowmem.py --performance-preset hard_or_receding_adaptive`
   runs the PR #8 pilot candidate with `sonic_only`, `hard_contract`, and
   `casa_a_hard_or_receding_recovery`.
+- CASA-Hybrid methods are Phase 5 extensions, not replacements for original
+  CASA-A. The final method name is `casa_h_mpc_safedpa_casa_refine`; the default
+  config `configs/phase5_hybrid_mpc_safedpa.yaml` maps it to `gray_refine` and
+  uses the existing `mpc_cbf_humanoid_adapted`, `safedpa_adapted`, and
+  `casa_a_per_skill` anchors. Pass it through online runs with
+  `--hybrid-config configs/phase5_hybrid_mpc_safedpa.yaml`.
+- `casa_audit_phase5_hybrid.py` reports whether the hybrid exceeds each anchor,
+  whether any win depends on more reject/fallback intervention, and whether the
+  matched intervention-budget check passes. If the hybrid does not beat the
+  anchors, the report should be used as a Pareto frontier, not as a success
+  claim.
 - `casa_sweep_phase5_online_policy.py --emit-run-commands` writes
   `phase5_online_policy_sweep_commands.sh` with pilot low-memory run commands
   and follow-up audit commands.
