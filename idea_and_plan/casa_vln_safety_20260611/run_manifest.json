@@ -1,0 +1,16 @@
+{
+  "full_output_path": "/mnt/data/students/lph/recording/casa_vln_safety_locked_real_navid_20260611_190121",
+  "command_summary": "gear_sonic/scripts/casa_run_vln_safety_online.py --heldout-episodes 20 --auto-demo-count 30 --visual-adapter-epochs 80 --max-steps 48 --frame-width 320 --frame-height 240 --policy-backend real_navid_visual_adapter --methods all",
+  "generated_reports": [
+    "README.md",
+    "casa_vln_safety_report.md",
+    "run_manifest.json",
+    "data/method_summary.csv",
+    "data/casa_vln_bridge_audit.json",
+    "data/wall_feature_audit.json",
+    "data/stop_source_audit.json"
+  ],
+  "large_output_policy": "Do not commit videos, frames, large CSV logs, model outputs, or recording directory contents to git.",
+  "sha256_files": "SHA256SUMS",
+  "timestamp": "2026-06-11T19:33:23+0800"
+}

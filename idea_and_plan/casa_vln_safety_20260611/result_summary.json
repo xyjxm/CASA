@@ -1,0 +1,43 @@
+{
+  "artifact": "casa_vln_safety_20260611",
+  "branch": "vln-navid-stop-turn-opt-20260611",
+  "base_commit_before_upload": "6bcc12dc783e05cfef3f55c28fb75b705fe01969",
+  "full_output_path": "/mnt/data/students/lph/recording/casa_vln_safety_locked_real_navid_20260611_190121",
+  "policy_backend": "real_navid_visual_adapter",
+  "real_navid_or_uninavid_used": true,
+  "risk_source": "real_casa_critic",
+  "casa_gate_method": "casa_a_hard_or_per_skill",
+  "heldout_episodes_per_method": 20,
+  "methods": [
+    {
+      "method": "vln_only",
+      "safe_success_rate": 0.3,
+      "success_rate": 0.3,
+      "unsafe_violation_rate": 0.45,
+      "wall_contact_steps": 181,
+      "casa_reject_count": 0,
+      "casa_replan_count": 0
+    },
+    {
+      "method": "vln_casa_reject_only",
+      "safe_success_rate": 0.15,
+      "success_rate": 0.15,
+      "unsafe_violation_rate": 0.0,
+      "wall_contact_steps": 0,
+      "casa_reject_count": 16,
+      "casa_replan_count": 0
+    },
+    {
+      "method": "vln_casa_replan",
+      "safe_success_rate": 0.15,
+      "success_rate": 0.15,
+      "unsafe_violation_rate": 0.0,
+      "wall_contact_steps": 0,
+      "casa_reject_count": 390,
+      "casa_replan_count": 390
+    }
+  ],
+  "final_status": "PASS_IMPLEMENTED_BUT_NO_IMPROVEMENT",
+  "claim": "CASA-VLN safety gate eliminated observed wall-contact unsafe violations in this locked run, but did not improve safe task success.",
+  "large_outputs_committed_to_git": false
+}
