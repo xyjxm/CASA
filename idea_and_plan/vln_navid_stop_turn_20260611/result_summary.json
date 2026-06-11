@@ -1,0 +1,39 @@
+{
+  "artifact": "vln_navid_stop_turn_20260611",
+  "date": "2026-06-11",
+  "policy_backend": "real_navid_visual_adapter",
+  "run_dir": "/mnt/data/students/lph/recording/vln_wall_painting_split_real_navid_stop_turn_opt2_20260611_152951",
+  "strict_audit_pass": true,
+  "metrics": {
+    "success_count": 8,
+    "total_episodes": 20,
+    "success_rate": 0.4,
+    "stop_precision": 1.0,
+    "stop_recall": 1.0,
+    "premature_stop_rate": 0.0,
+    "late_stop_rate": 0.0,
+    "mean_stop_distance": 0.5,
+    "fall_count": 0,
+    "collision_count": 456,
+    "timeout_count": 12
+  },
+  "success_episodes": [
+    "heldout_001",
+    "heldout_003",
+    "heldout_005",
+    "heldout_008",
+    "heldout_009",
+    "heldout_010",
+    "heldout_013",
+    "heldout_018"
+  ],
+  "failure_reasons": {
+    "missing_policy_stop": 12,
+    "success": 8
+  },
+  "interpretation": {
+    "stop_turn_optimization_supported": true,
+    "collision_recovery_solved": false,
+    "notes": "STOP quality improved to zero premature/late stops in this run, but remaining failures are dominated by collision/blocking and timeout without policy STOP."
+  }
+}

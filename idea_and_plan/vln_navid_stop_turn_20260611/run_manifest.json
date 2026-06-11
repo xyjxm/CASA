@@ -1,0 +1,32 @@
+{
+  "artifact": "vln_navid_stop_turn_20260611",
+  "timestamp_local": "2026-06-11T15:29:51+08:00",
+  "repo_branch": "vln-navid-stop-turn-opt-20260611",
+  "run_dir": "/mnt/data/students/lph/recording/vln_wall_painting_split_real_navid_stop_turn_opt2_20260611_152951",
+  "source_maps": {
+    "train_map_metadata": "/mnt/data/students/lph/recording/vln_wall_painting_split_maps_20260611_141106/train_gallery/data/MEDIUM_MAZE_DIVERSE_GR_scale2_furnished_train_gallery_wall_painting.json",
+    "test_map_metadata": "/mnt/data/students/lph/recording/vln_wall_painting_split_maps_20260611_141106/test_gallery/data/MEDIUM_MAZE_DIVERSE_GR_scale2_furnished_test_gallery_wall_painting.json"
+  },
+  "command_used": ".venv_sim/bin/python -u gear_sonic/scripts/run_vln_sonic_mujoco_no_casa_success30.py --run-dir /mnt/data/students/lph/recording/vln_wall_painting_split_real_navid_stop_turn_opt2_20260611_152951 --train-map-metadata /mnt/data/students/lph/recording/vln_wall_painting_split_maps_20260611_141106/train_gallery/data/MEDIUM_MAZE_DIVERSE_GR_scale2_furnished_train_gallery_wall_painting.json --train-scene-xml /mnt/data/students/lph/recording/vln_wall_painting_split_maps_20260611_141106/train_gallery/mjcf/sonic_scene_MEDIUM_MAZE_DIVERSE_GR_scale2_furnished_train_gallery_wall_painting.xml --map-metadata /mnt/data/students/lph/recording/vln_wall_painting_split_maps_20260611_141106/test_gallery/data/MEDIUM_MAZE_DIVERSE_GR_scale2_furnished_test_gallery_wall_painting.json --scene-xml /mnt/data/students/lph/recording/vln_wall_painting_split_maps_20260611_141106/test_gallery/mjcf/sonic_scene_MEDIUM_MAZE_DIVERSE_GR_scale2_furnished_test_gallery_wall_painting.xml --heldout-episodes 20 --auto-demo-count 120 --visual-adapter-epochs 300 --min-route-edges 4 --max-route-edges 14 --min-route-euclidean-m 6.0 --require-furniture-detour --policy-backend real_navid_visual_adapter --max-steps 96 --frame-width 320 --frame-height 240",
+  "reports": {
+    "navigation_manifest": "/mnt/data/students/lph/recording/vln_wall_painting_split_real_navid_stop_turn_opt2_20260611_152951/navigation_manifest.json",
+    "navigation_report": "/mnt/data/students/lph/recording/vln_wall_painting_split_real_navid_stop_turn_opt2_20260611_152951/navigation_success30_report.md",
+    "strict_goal_audit": "/mnt/data/students/lph/recording/vln_wall_painting_split_real_navid_stop_turn_opt2_20260611_152951/data/strict_goal_audit.json",
+    "decision_logs": "/mnt/data/students/lph/recording/vln_wall_painting_split_real_navid_stop_turn_opt2_20260611_152951/data/decision_logs.csv",
+    "trajectory_logs": "/mnt/data/students/lph/recording/vln_wall_painting_split_real_navid_stop_turn_opt2_20260611_152951/data/trajectory_logs.csv"
+  },
+  "external_artifact_dirs": {
+    "videos": "/mnt/data/students/lph/recording/vln_wall_painting_split_real_navid_stop_turn_opt2_20260611_152951/videos",
+    "frames": "/mnt/data/students/lph/recording/vln_wall_painting_split_real_navid_stop_turn_opt2_20260611_152951/frames",
+    "data": "/mnt/data/students/lph/recording/vln_wall_painting_split_real_navid_stop_turn_opt2_20260611_152951/data"
+  },
+  "real_navid": {
+    "used_for_inference": true,
+    "model_path": "/mnt/data/students/lph/models/navid/Jzzhang_NaVid/navid-7b-full-224-video-fps-1-grid-2-r2r-rxr-training-split"
+  },
+  "git_policy": {
+    "large_outputs_committed": false,
+    "recording_dir_committed": false,
+    "hashes_recorded_in": "SHA256SUMS"
+  }
+}
