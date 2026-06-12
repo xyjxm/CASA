@@ -1,0 +1,56 @@
+{
+  "artifact": "vln_ppsr_v2_escape_macro_20260612",
+  "method": "vln_ppsr_v2_escape_macro",
+  "aliases": [
+    "vln_escape_macro_progress",
+    "vln_dmps_escape_macro_progress"
+  ],
+  "baseline_method": "vln_dmps_mpc_cbf_progress",
+  "output_dir": "/mnt/data/students/lph/recording/vln_ppsr_v2_escape_macro_locked_20260612_185743/locked_20_real_navid_gpu0_uuid",
+  "final_status": "PASS_IMPLEMENTED_BUT_NO_IMPROVEMENT",
+  "policy_backend": "real_navid_visual_adapter",
+  "real_navid_or_uninavid_used": true,
+  "navid_cuda_visible_devices": "GPU-8b1188b9-c3d8-a887-a7f9-073ccd6e33fb",
+  "used_evaluator_success_for_online_replan": false,
+  "used_map_cell_progress_for_online_replan": false,
+  "heldout_episodes_per_method": 20,
+  "methods": {
+    "vln_only": {
+      "safe_success_count": 6,
+      "safe_success_rate": 0.3,
+      "unsafe_violation_count": 9,
+      "reject_count": 0,
+      "small_turn_recovery_count": 0,
+      "escape_macro_selected_count": 0
+    },
+    "vln_casa_replan": {
+      "safe_success_count": 3,
+      "safe_success_rate": 0.15,
+      "unsafe_violation_count": 0,
+      "reject_count": 390,
+      "small_turn_recovery_count": 0,
+      "escape_macro_selected_count": 0
+    },
+    "vln_dmps_mpc_cbf_progress": {
+      "safe_success_count": 6,
+      "safe_success_rate": 0.3,
+      "unsafe_violation_count": 0,
+      "reject_count": 368,
+      "small_turn_recovery_count": 352,
+      "escape_macro_selected_count": 0
+    },
+    "vln_ppsr_v2_escape_macro": {
+      "safe_success_count": 3,
+      "safe_success_rate": 0.15,
+      "unsafe_violation_count": 0,
+      "reject_count": 148,
+      "small_turn_recovery_count": 0,
+      "escape_macro_selected_count": 108,
+      "escape_macro_commitment_count": 109,
+      "post_reject_forward_reenabled_rate": 1.0,
+      "mean_post_reject_progress": 0.004828349370011003,
+      "mean_final_distance": 5.314260450576733
+    }
+  },
+  "conclusion": "PPSR-v2 is implemented and auditable, removes PPSR-v1 small-turn recovery loops, and reduces rejects, but does not improve locked safe-success over PPSR-v1."
+}

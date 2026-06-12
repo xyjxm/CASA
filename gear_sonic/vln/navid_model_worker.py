@@ -311,6 +311,8 @@ def main() -> int:
                 "model_name": model.model_name,
                 "context_len": model.context_len,
                 "device": str(model.device),
+                "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+                "cuda_device_order": os.environ.get("CUDA_DEVICE_ORDER"),
             }
         )
         _handle_loop(model)

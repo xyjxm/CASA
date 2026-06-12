@@ -22,20 +22,32 @@ from .casa_bridge import (
     CasaVlnBridge,
     RecoveryCandidate,
     bridge_audit_dict,
+    clearance_to_blocking_geometry,
     is_policy_stop_source,
     policy_internal_guard_summary,
     stop_source_for_policy_decision,
 )
 from .dmps_mpc_cbf_replan import (
+    CandidateSequence,
     DEFAULT_SCORE_WEIGHTS,
     DMPS_ALIAS,
     DMPS_LAST_RESORT_STOP_SOURCE,
     DMPS_METHOD_NAME,
+    PPSR_V2_ALIASES,
+    PPSR_V2_COMMITMENT_ABORT_STOP_SOURCE,
+    PPSR_V2_LAST_RESORT_STOP_SOURCE,
+    PPSR_V2_METHOD_NAME,
+    PPSR_V2_SCORE_WEIGHTS,
     candidate_scores_to_rows,
     is_dmps_method,
+    is_ppsr_v2_method,
     normalize_dmps_method,
+    rollout_candidate_sequence,
     select_dmps_replan,
+    select_ppsr_v2_replan,
     selected_replan_row,
+    skill_for_recovery_action,
+    terminal_short_forward_probe,
 )
 from .maze import MazeMap, generate_routes
 from .metrics import append_jsonl, distance_to_goal, write_json
@@ -74,7 +86,7 @@ DEFAULT_TRAIN_MAP_METADATA = GALLERY_SPLIT_ROOT / "train_gallery/data/MEDIUM_MAZ
 DEFAULT_TRAIN_SCENE_XML = GALLERY_SPLIT_ROOT / "train_gallery/mjcf/sonic_scene_MEDIUM_MAZE_DIVERSE_GR_scale2_furnished_train_gallery_wall_painting.xml"
 DEFAULT_TEST_MAP_METADATA = GALLERY_SPLIT_ROOT / "test_gallery/data/MEDIUM_MAZE_DIVERSE_GR_scale2_furnished_test_gallery_wall_painting.json"
 DEFAULT_TEST_SCENE_XML = GALLERY_SPLIT_ROOT / "test_gallery/mjcf/sonic_scene_MEDIUM_MAZE_DIVERSE_GR_scale2_furnished_test_gallery_wall_painting.xml"
-METHODS = ("vln_only", "vln_casa_reject_only", "vln_casa_replan", DMPS_METHOD_NAME)
+METHODS = ("vln_only", "vln_casa_reject_only", "vln_casa_replan", DMPS_METHOD_NAME, PPSR_V2_METHOD_NAME)
 DECISION_LOG_COLUMNS = [
     "method",
     "episode_id",
@@ -164,11 +176,17 @@ class CasaVlnRunnerConfig:
     navid_python: Path = NAVID_PYTHON
     navid_vision_tower: Path = NAVID_VISION_TOWER
     navid_worker_timeout_s: float = 900.0
+    navid_cuda_visible_devices: str | None = None
     gate_method: str = "casa_a_hard_or_per_skill"
     max_consecutive_casa_recovery_steps: int = 1
     max_consecutive_dmps_recovery_steps: int = 1
     dmps_horizon: int = 2
     safety_margin: float = 0.05
+    ppsr_v2_horizon_default: int = 2
+    ppsr_v2_horizon_stuck: int = 3
+    ppsr_v2_max_commit_steps: int = 2
+    ppsr_v2_safety_margin: float = 0.05
+    ppsr_v2_score_config: Path | None = None
     progress_score_config: Path | None = None
     score_weights: dict[str, float] | None = None
     previous_casa_vln_result_path: Path = Path("/mnt/data/students/lph/recording/casa_vln_safety_locked_real_navid_20260611_190121")
@@ -273,6 +291,7 @@ def build_policy(
             python_executable=config.navid_python,
             vision_tower_path=config.navid_vision_tower,
             worker_timeout_s=config.navid_worker_timeout_s,
+            cuda_visible_devices=config.navid_cuda_visible_devices,
         )
         if not backend.availability.get("model_loaded"):
             write_json(dirs["data"] / "real_navid_backend_probe.json", backend.availability)
@@ -349,9 +368,29 @@ def run_episode_with_method(
         dmps_replan_applied = False
         dmps_selected_sequence = ""
         dmps_recovery_stuck = False
+        ppsr_v2_replan_applied = False
+        ppsr_v2_stuck_mode = False
+        ppsr_v2_stuck_mode_reasons: tuple[str, ...] = ()
+        ppsr_v2_hard_mask_applied = False
+        ppsr_v2_escape_macro_selected = False
+        ppsr_v2_commitment_executed = False
+        ppsr_v2_commitment_aborted = False
+        ppsr_v2_second_action = ""
+        ppsr_v2_second_action_safety_feasible = False
+        ppsr_v2_commitment_abort_reason = ""
+        ppsr_v2_recovery_took_over = False
+        ppsr_v2_selected_sequence_contains_translation = False
+        ppsr_v2_post_reject_forward_reenabled = False
+        ppsr_v2_post_reject_clearance_gain = 0.0
+        ppsr_v2_post_reject_unblocked = False
+        ppsr_v2_post_reject_visual_novelty = False
+        ppsr_v2_second_skill_status = ""
+        ppsr_v2_second_wall_collision = False
+        ppsr_v2_second_fall = False
         non_stop_recovery_selected = False
         all_non_stop_candidates_infeasible = False
         rejected_candidate_skill_was_executed = False
+        selected_sequence = None
 
         if method != "vln_only":
             if bridge is None:
@@ -450,6 +489,61 @@ def run_episode_with_method(
                             }
                         )
                         dmps_rollout_rows.append(rollout_row)
+                elif is_ppsr_v2_method(method):
+                    dmps_selection = select_ppsr_v2_replan(
+                        bridge=bridge,
+                        pose=pose_before,
+                        maze=env.maze,
+                        robot_radius=env.robot_radius,
+                        nominal_action=action,
+                        image_path=frame_path,
+                        progress_monitor=progress_monitor,
+                        step_idx=step_idx,
+                        horizon_default=config.ppsr_v2_horizon_default,
+                        horizon_stuck=config.ppsr_v2_horizon_stuck,
+                        safety_margin=config.ppsr_v2_safety_margin,
+                        score_weights=config.score_weights,
+                    )
+                    dmps_replan_applied = True
+                    ppsr_v2_replan_applied = True
+                    casa_replan_applied = True
+                    selected_sequence = dmps_selection.selected_sequence
+                    first_action = selected_sequence.actions[0]
+                    final_action_text = first_action
+                    final_skill = selected_sequence.skills[0]
+                    replan_selected_action = first_action
+                    replan_selected_skill = final_skill.name
+                    dmps_selected_sequence = json.dumps(list(selected_sequence.actions))
+                    all_non_stop_candidates_infeasible = dmps_selection.all_non_stop_candidates_infeasible
+                    non_stop_recovery_selected = first_action != "stop_as_last_resort"
+                    dmps_recovery_stuck = bool(dmps_selection.stuck_mode)
+                    ppsr_v2_stuck_mode = bool(dmps_selection.stuck_mode)
+                    ppsr_v2_stuck_mode_reasons = tuple(dmps_selection.stuck_mode_reasons)
+                    ppsr_v2_hard_mask_applied = any(score.hard_mask_applied for score in dmps_selection.candidate_scores)
+                    ppsr_v2_escape_macro_selected = bool(selected_sequence.escape_macro)
+                    ppsr_v2_selected_sequence_contains_translation = bool(dmps_selection.selected_score.contains_translation)
+                    if selected_sequence.stop_as_last_resort:
+                        stop_source = PPSR_V2_LAST_RESORT_STOP_SOURCE
+                    dmps_candidate_rows.extend(
+                        candidate_scores_to_rows(
+                            method=method,
+                            episode_id=task.episode_id,
+                            step_idx=step_idx,
+                            nominal_action=action.value,
+                            reject_reason=casa_decision.reject_reason,
+                            selection=dmps_selection,
+                        )
+                    )
+                    for rollout_row in dmps_selection.rollout_rows:
+                        rollout_row.update(
+                            {
+                                "method": method,
+                                "episode_id": task.episode_id,
+                                "step_id": step_idx,
+                                "nominal_action": action.value,
+                            }
+                        )
+                        dmps_rollout_rows.append(rollout_row)
                 else:
                     raise ValueError(f"unsupported CASA method: {method}")
 
@@ -457,6 +551,72 @@ def run_episode_with_method(
         result = env.execute_skill(final_skill)
         pose_after = env.pose()
         distance_after = distance_to_goal(task, pose_after)
+        if ppsr_v2_replan_applied and selected_sequence is not None:
+            start_clearance, _ = clearance_to_blocking_geometry(
+                pose_before.x,
+                pose_before.y,
+                maze=env.maze,
+                robot_radius=env.robot_radius,
+            )
+            should_commit_second = (
+                ppsr_v2_stuck_mode
+                and len(selected_sequence.actions) >= 2
+                and ppsr_v2_selected_sequence_contains_translation
+                and config.ppsr_v2_max_commit_steps >= 2
+                and result.status not in {"blocked", "collision"}
+                and not result.fall
+            )
+            if should_commit_second:
+                ppsr_v2_second_action = selected_sequence.actions[1]
+                current_pose = env.pose()
+                second_skill = skill_for_recovery_action(ppsr_v2_second_action, current_pose.yaw_deg)
+                second_candidate = CandidateSequence(
+                    sequence_id=f"commit_{ppsr_v2_second_action}",
+                    actions=(ppsr_v2_second_action,),
+                    skills=(second_skill,),
+                    stop_as_last_resort=ppsr_v2_second_action == "stop_as_last_resort",
+                )
+                second_rollout = rollout_candidate_sequence(
+                    candidate=second_candidate,
+                    start_pose=current_pose,
+                    maze=env.maze,
+                    robot_radius=env.robot_radius,
+                    safety_margin=config.ppsr_v2_safety_margin,
+                )
+                ppsr_v2_second_action_safety_feasible = bool(second_rollout.safety_feasible)
+                if second_rollout.safety_feasible and ppsr_v2_second_action != "stop_as_last_resort":
+                    second_result = env.execute_skill(second_skill)
+                    ppsr_v2_commitment_executed = True
+                    ppsr_v2_commitment_aborted = False
+                    ppsr_v2_second_skill_status = second_result.status
+                    ppsr_v2_second_wall_collision = bool(second_result.wall_collision)
+                    ppsr_v2_second_fall = bool(second_result.fall)
+                    pose_after = env.pose()
+                    distance_after = distance_to_goal(task, pose_after)
+                    if second_result.status in {"blocked", "collision"} or second_result.fall:
+                        ppsr_v2_commitment_abort_reason = f"second_step_runtime_{second_result.status}"
+                else:
+                    ppsr_v2_commitment_aborted = True
+                    ppsr_v2_commitment_abort_reason = second_rollout.safety_rejection_reason
+            elif ppsr_v2_stuck_mode and len(selected_sequence.actions) >= 2:
+                ppsr_v2_commitment_aborted = True
+                ppsr_v2_commitment_abort_reason = "first_step_not_successful_or_no_translation"
+            end_clearance, _ = clearance_to_blocking_geometry(
+                pose_after.x,
+                pose_after.y,
+                maze=env.maze,
+                robot_radius=env.robot_radius,
+            )
+            probe = terminal_short_forward_probe(
+                pose=pose_after,
+                maze=env.maze,
+                robot_radius=env.robot_radius,
+                safety_margin=config.ppsr_v2_safety_margin,
+            )
+            ppsr_v2_post_reject_clearance_gain = float(end_clearance - start_clearance)
+            ppsr_v2_post_reject_forward_reenabled = bool(probe["terminal_can_short_forward"])
+            ppsr_v2_post_reject_unblocked = result.status not in {"blocked", "collision"}
+            ppsr_v2_post_reject_visual_novelty = bool(ppsr_v2_commitment_executed or ppsr_v2_escape_macro_selected)
         if casa_decision is not None and casa_decision.casa_reject:
             rejected_candidate_skill_was_executed = _same_executable(candidate_skill, final_skill)
         metrics_action = _metrics_action(final_action_text)
@@ -476,6 +636,12 @@ def run_episode_with_method(
                     executed_first_skill=final_skill,
                     stop_source=stop_source,
                     post_reject_progress_evaluator_only=float(post_reject_progress or 0.0),
+                    committed_second_action=ppsr_v2_second_action,
+                    committed_second_step_executed=ppsr_v2_commitment_executed,
+                    committed_second_step_aborted=ppsr_v2_commitment_aborted,
+                    second_action_safety_feasible=ppsr_v2_second_action_safety_feasible,
+                    abort_reason=ppsr_v2_commitment_abort_reason,
+                    max_commit_steps=config.ppsr_v2_max_commit_steps if ppsr_v2_replan_applied else 1,
                 )
             )
         record = {
@@ -535,6 +701,22 @@ def run_episode_with_method(
             "dmps_replan_applied": dmps_replan_applied,
             "dmps_selected_sequence": dmps_selected_sequence,
             "dmps_recovery_stuck": dmps_recovery_stuck,
+            "ppsr_v2_replan_applied": ppsr_v2_replan_applied,
+            "ppsr_v2_stuck_mode": ppsr_v2_stuck_mode,
+            "ppsr_v2_stuck_mode_reasons": list(ppsr_v2_stuck_mode_reasons),
+            "ppsr_v2_hard_mask_applied": ppsr_v2_hard_mask_applied,
+            "ppsr_v2_escape_macro_selected": ppsr_v2_escape_macro_selected,
+            "ppsr_v2_commitment_executed": ppsr_v2_commitment_executed,
+            "ppsr_v2_commitment_aborted": ppsr_v2_commitment_aborted,
+            "ppsr_v2_second_action": ppsr_v2_second_action,
+            "ppsr_v2_second_action_safety_feasible": ppsr_v2_second_action_safety_feasible,
+            "ppsr_v2_second_skill_status": ppsr_v2_second_skill_status,
+            "ppsr_v2_commitment_abort_reason": ppsr_v2_commitment_abort_reason,
+            "ppsr_v2_recovery_took_over": ppsr_v2_recovery_took_over,
+            "ppsr_v2_post_reject_clearance_gain": ppsr_v2_post_reject_clearance_gain,
+            "ppsr_v2_post_reject_forward_reenabled": ppsr_v2_post_reject_forward_reenabled,
+            "ppsr_v2_post_reject_unblocked": ppsr_v2_post_reject_unblocked,
+            "ppsr_v2_post_reject_visual_novelty": ppsr_v2_post_reject_visual_novelty,
             "non_stop_recovery_selected": non_stop_recovery_selected,
             "all_non_stop_candidates_infeasible": all_non_stop_candidates_infeasible,
             "post_reject_progress_evaluator_only": post_reject_progress,
@@ -546,8 +728,8 @@ def run_episode_with_method(
             "evaluator_only_shortest_path_remaining": env.maze.shortest_path_distance_xy(
                 (pose_before.x, pose_before.y), task.goal_xy
             ),
-            "fall": result.fall,
-            "wall_collision": result.wall_collision,
+            "fall": bool(result.fall or ppsr_v2_second_fall),
+            "wall_collision": bool(result.wall_collision or ppsr_v2_second_wall_collision),
             "privileged_policy_usage": False,
         }
         decision_records.append(record)
@@ -560,6 +742,16 @@ def run_episode_with_method(
         )
         previous_actions.append(metrics_action)
         previous_status.append(result.status)
+        if ppsr_v2_commitment_executed and ppsr_v2_second_action:
+            progress_monitor.record_step(
+                step_idx=step_idx,
+                executed_action=_metrics_action(ppsr_v2_second_action),
+                skill_status=ppsr_v2_second_skill_status or "ok",
+                stop_source="",
+                selected_recovery_action=ppsr_v2_second_action,
+            )
+            previous_actions.append(_metrics_action(ppsr_v2_second_action))
+            previous_status.append(ppsr_v2_second_skill_status or "ok")
         if metrics_action == VLNAction.STOP.value:
             break
 
@@ -721,7 +913,23 @@ def _metrics_action(action_text: str) -> str:
         return VLNAction.TURN_LEFT.value
     if action_text == "small_turn_right":
         return VLNAction.TURN_RIGHT.value
+    if action_text == "wide_turn_left":
+        return VLNAction.TURN_LEFT.value
+    if action_text == "wide_turn_right":
+        return VLNAction.TURN_RIGHT.value
     return VLNAction(action_text).value
+
+
+def _selected_sequence_is_turn_only(raw_sequence: Any) -> bool:
+    if not raw_sequence:
+        return False
+    try:
+        actions = json.loads(str(raw_sequence))
+    except Exception:
+        return False
+    if not isinstance(actions, list) or not actions:
+        return False
+    return all(str(action) in {"turn_left", "turn_right", "small_turn_left", "small_turn_right", "wide_turn_left", "wide_turn_right"} for action in actions)
 
 
 def summarize_casa_episode(
@@ -838,6 +1046,10 @@ def summarize_casa_episode(
         for record in decision_records
         if record.get("casa_replan_applied")
     ]
+    ppsr_v2_records = [record for record in decision_records if record.get("ppsr_v2_replan_applied")]
+    ppsr_v2_clearance_gains = [float(record.get("ppsr_v2_post_reject_clearance_gain", 0.0)) for record in ppsr_v2_records]
+    small_turn_recovery_count = sum(1 for action in recovery_actions if action in {"small_turn_left", "small_turn_right"})
+    turn_only_recovery_count = sum(1 for record in decision_records if _selected_sequence_is_turn_only(record.get("dmps_selected_sequence")))
     return {
         "method": method,
         "episode_id": task.episode_id,
@@ -876,14 +1088,27 @@ def summarize_casa_episode(
         "last_resort_stop_count": sum(
             1
             for record in all_stop_records
-            if record.get("stop_source") in {"casa_reject_only_stop", "casa_replan_last_resort_stop", DMPS_LAST_RESORT_STOP_SOURCE}
+            if record.get("stop_source")
+            in {
+                "casa_reject_only_stop",
+                "casa_replan_last_resort_stop",
+                DMPS_LAST_RESORT_STOP_SOURCE,
+                PPSR_V2_LAST_RESORT_STOP_SOURCE,
+                PPSR_V2_COMMITMENT_ABORT_STOP_SOURCE,
+            }
         ),
         "stop_source_distribution": stop_source_distribution,
         "non_stop_recovery_count": sum(1 for record in decision_records if record.get("non_stop_recovery_selected")),
         "fallback_to_stop_count": sum(
             1
             for record in all_stop_records
-            if record.get("stop_source") in {"casa_replan_last_resort_stop", DMPS_LAST_RESORT_STOP_SOURCE}
+            if record.get("stop_source")
+            in {
+                "casa_replan_last_resort_stop",
+                DMPS_LAST_RESORT_STOP_SOURCE,
+                PPSR_V2_LAST_RESORT_STOP_SOURCE,
+                PPSR_V2_COMMITMENT_ABORT_STOP_SOURCE,
+            }
         ),
         "repeated_reject_loop_count": sum(
             1
@@ -897,6 +1122,21 @@ def summarize_casa_episode(
         if post_reject_progress_values
         else 0.0,
         "recovery_action_distribution": dict(Counter(action for action in recovery_actions if action)),
+        "ppsr_v2_replan_count": len(ppsr_v2_records),
+        "ppsr_v2_hard_mask_count": sum(1 for record in ppsr_v2_records if record.get("ppsr_v2_hard_mask_applied")),
+        "escape_macro_selected_count": sum(1 for record in ppsr_v2_records if record.get("ppsr_v2_escape_macro_selected")),
+        "escape_macro_commitment_count": sum(1 for record in ppsr_v2_records if record.get("ppsr_v2_commitment_executed")),
+        "escape_macro_commitment_success_count": sum(
+            1
+            for record in ppsr_v2_records
+            if record.get("ppsr_v2_commitment_executed") and not record.get("ppsr_v2_commitment_abort_reason")
+        ),
+        "turn_only_recovery_count": turn_only_recovery_count,
+        "small_turn_recovery_count": small_turn_recovery_count,
+        "post_reject_clearance_gain": _mean(ppsr_v2_clearance_gains),
+        "post_reject_forward_reenabled_count": sum(1 for record in ppsr_v2_records if record.get("ppsr_v2_post_reject_forward_reenabled")),
+        "post_reject_unblocked_count": sum(1 for record in ppsr_v2_records if record.get("ppsr_v2_post_reject_unblocked")),
+        "post_reject_visual_novelty_count": sum(1 for record in ppsr_v2_records if record.get("ppsr_v2_post_reject_visual_novelty")),
         "rejected_candidate_skill_executed_count": sum(
             1 for record in decision_records if record.get("rejected_candidate_skill_was_executed")
         ),
@@ -945,6 +1185,15 @@ def aggregate_method(episodes: list[dict[str, Any]]) -> dict[str, Any]:
     replan_count = sum(int(episode["casa_replan_count"]) for episode in episodes)
     non_stop_recovery_count = sum(int(episode.get("non_stop_recovery_count", 0)) for episode in episodes)
     fallback_to_stop_count = sum(int(episode.get("fallback_to_stop_count", 0)) for episode in episodes)
+    ppsr_v2_replan_count = sum(int(episode.get("ppsr_v2_replan_count", 0)) for episode in episodes)
+    escape_macro_selected_count = sum(int(episode.get("escape_macro_selected_count", 0)) for episode in episodes)
+    escape_macro_commitment_count = sum(int(episode.get("escape_macro_commitment_count", 0)) for episode in episodes)
+    escape_macro_commitment_success_count = sum(int(episode.get("escape_macro_commitment_success_count", 0)) for episode in episodes)
+    turn_only_recovery_count = sum(int(episode.get("turn_only_recovery_count", 0)) for episode in episodes)
+    small_turn_recovery_count = sum(int(episode.get("small_turn_recovery_count", 0)) for episode in episodes)
+    forward_reenabled_count = sum(int(episode.get("post_reject_forward_reenabled_count", 0)) for episode in episodes)
+    post_reject_unblocked_count = sum(int(episode.get("post_reject_unblocked_count", 0)) for episode in episodes)
+    post_reject_visual_novelty_count = sum(int(episode.get("post_reject_visual_novelty_count", 0)) for episode in episodes)
     return {
         "method": episodes[0]["method"] if episodes else "",
         "total_episodes": total,
@@ -986,6 +1235,21 @@ def aggregate_method(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         "fallback_to_stop_rate": fallback_to_stop_count / max(1, replan_count),
         "repeated_reject_loop_count": sum(int(episode.get("repeated_reject_loop_count", 0)) for episode in episodes),
         "dmps_recovery_stuck_count": sum(int(episode.get("dmps_recovery_stuck_count", 0)) for episode in episodes),
+        "ppsr_v2_replan_count": ppsr_v2_replan_count,
+        "ppsr_v2_hard_mask_count": sum(int(episode.get("ppsr_v2_hard_mask_count", 0)) for episode in episodes),
+        "escape_macro_selected_count": escape_macro_selected_count,
+        "escape_macro_selected_rate": escape_macro_selected_count / max(1, ppsr_v2_replan_count),
+        "escape_macro_commitment_count": escape_macro_commitment_count,
+        "escape_macro_commitment_success_rate": escape_macro_commitment_success_count / max(1, escape_macro_commitment_count),
+        "turn_only_recovery_count": turn_only_recovery_count,
+        "turn_only_recovery_rate": turn_only_recovery_count / max(1, replan_count),
+        "small_turn_recovery_count": small_turn_recovery_count,
+        "small_turn_recovery_rate": small_turn_recovery_count / max(1, replan_count),
+        "post_reject_clearance_gain": _mean([episode.get("post_reject_clearance_gain", 0.0) for episode in episodes]),
+        "post_reject_forward_reenabled_count": forward_reenabled_count,
+        "post_reject_forward_reenabled_rate": forward_reenabled_count / max(1, ppsr_v2_replan_count),
+        "post_reject_unblocked_rate": post_reject_unblocked_count / max(1, ppsr_v2_replan_count),
+        "post_reject_visual_novelty_rate": post_reject_visual_novelty_count / max(1, ppsr_v2_replan_count),
         "mean_post_reject_progress": _mean(post_reject_progress_values),
         "median_post_reject_progress": median(post_reject_progress_values) if post_reject_progress_values else 0.0,
         "positive_post_reject_progress_rate": sum(1 for value in post_reject_progress_values if value > 0.0) / len(post_reject_progress_values)
@@ -1041,6 +1305,24 @@ def _csv_value(value: Any) -> Any:
     return value
 
 
+def _json_list(value: Any) -> list[Any]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    try:
+        parsed = json.loads(str(value))
+    except json.JSONDecodeError:
+        return [str(value)]
+    if isinstance(parsed, list):
+        return parsed
+    if isinstance(parsed, tuple):
+        return list(parsed)
+    return [parsed]
+
+
 def flatten_decision_record(record: dict[str, Any]) -> dict[str, Any]:
     pose = record.get("evaluator_pose") or {}
     goal = record.get("evaluator_goal_xy") or [None, None]
@@ -1080,6 +1362,19 @@ def flatten_decision_record(record: dict[str, Any]) -> dict[str, Any]:
         "dmps_replan_applied": record.get("dmps_replan_applied"),
         "dmps_selected_sequence": record.get("dmps_selected_sequence"),
         "dmps_recovery_stuck": record.get("dmps_recovery_stuck"),
+        "ppsr_v2_replan_applied": record.get("ppsr_v2_replan_applied"),
+        "ppsr_v2_stuck_mode": record.get("ppsr_v2_stuck_mode"),
+        "ppsr_v2_stuck_mode_reasons": record.get("ppsr_v2_stuck_mode_reasons"),
+        "ppsr_v2_hard_mask_applied": record.get("ppsr_v2_hard_mask_applied"),
+        "ppsr_v2_escape_macro_selected": record.get("ppsr_v2_escape_macro_selected"),
+        "ppsr_v2_commitment_executed": record.get("ppsr_v2_commitment_executed"),
+        "ppsr_v2_commitment_aborted": record.get("ppsr_v2_commitment_aborted"),
+        "ppsr_v2_second_action": record.get("ppsr_v2_second_action"),
+        "ppsr_v2_second_action_safety_feasible": record.get("ppsr_v2_second_action_safety_feasible"),
+        "ppsr_v2_post_reject_clearance_gain": record.get("ppsr_v2_post_reject_clearance_gain"),
+        "ppsr_v2_post_reject_forward_reenabled": record.get("ppsr_v2_post_reject_forward_reenabled"),
+        "ppsr_v2_post_reject_unblocked": record.get("ppsr_v2_post_reject_unblocked"),
+        "ppsr_v2_post_reject_visual_novelty": record.get("ppsr_v2_post_reject_visual_novelty"),
         "non_stop_recovery_selected": record.get("non_stop_recovery_selected"),
         "all_non_stop_candidates_infeasible": record.get("all_non_stop_candidates_infeasible"),
         "post_reject_progress_evaluator_only": record.get("post_reject_progress_evaluator_only"),
@@ -1129,11 +1424,27 @@ def write_global_logs(data_dir: Path, episode_metrics: list[dict[str, Any]]) -> 
     write_table_csv(data_dir / "dmps_candidate_sequences.csv", dmps_candidate_rows)
     write_table_csv(data_dir / "dmps_selected_replans.csv", dmps_selected_rows)
     write_table_csv(data_dir / "dmps_score_breakdown.csv", dmps_candidate_rows)
+    ppsr_v2_candidate_rows = [row for row in dmps_candidate_rows if row.get("method") == PPSR_V2_METHOD_NAME]
+    ppsr_v2_selected_rows = [row for row in dmps_selected_rows if row.get("method") == PPSR_V2_METHOD_NAME]
+    write_table_csv(data_dir / "ppsr_v2_candidate_sequences.csv", ppsr_v2_candidate_rows)
+    write_table_csv(data_dir / "ppsr_v2_selected_replans.csv", ppsr_v2_selected_rows)
+    write_table_csv(data_dir / "terminal_sequence_score_audit.csv", ppsr_v2_candidate_rows)
+    write_table_csv(
+        data_dir / "escape_macro_candidates.csv",
+        [row for row in ppsr_v2_candidate_rows if int(row.get("escape_macro_candidate", 0))],
+    )
+    write_table_csv(data_dir / "escape_commitment_logs.csv", ppsr_v2_selected_rows)
+    write_table_csv(data_dir / "ppsr_v2_method_summary.csv", [])
     for jsonl_path in [data_dir / "dmps_mpc_cbf_rollouts.jsonl", data_dir / "progress_monitor_events.jsonl"]:
         if jsonl_path.exists():
             jsonl_path.unlink()
     append_jsonl(data_dir / "dmps_mpc_cbf_rollouts.jsonl", dmps_rollout_rows)
     append_jsonl(data_dir / "progress_monitor_events.jsonl", progress_event_rows)
+    mask_events = [row for row in ppsr_v2_candidate_rows if int(row.get("hard_mask_applied", 0))]
+    mask_path = data_dir / "anti_turn_loop_mask_events.jsonl"
+    if mask_path.exists():
+        mask_path.unlink()
+    append_jsonl(mask_path, mask_events)
     summaries = data_dir / "episode_summaries.jsonl"
     if summaries.exists():
         summaries.unlink()
@@ -1249,7 +1560,15 @@ def write_audits(
     stop_rows = [row for row in decision_rows if row.get("metrics_action") == VLNAction.STOP.value]
     stop_source_audit = {
         "policy_success_stop_sources": sorted(["vln_policy", "policy_internal_guard"]),
-        "non_success_casa_stop_sources": sorted(["casa_reject_only_stop", "casa_replan_last_resort_stop", DMPS_LAST_RESORT_STOP_SOURCE]),
+        "non_success_casa_stop_sources": sorted(
+            [
+                "casa_reject_only_stop",
+                "casa_replan_last_resort_stop",
+                DMPS_LAST_RESORT_STOP_SOURCE,
+                PPSR_V2_LAST_RESORT_STOP_SOURCE,
+                PPSR_V2_COMMITMENT_ABORT_STOP_SOURCE,
+            ]
+        ),
         "stop_source_counts": dict(Counter(str(row.get("stop_source") or "") for row in stop_rows)),
         "casa_stop_rows_counted_as_policy_stop": sum(
             1
@@ -1286,6 +1605,8 @@ def write_audits(
         "used_shortest_path_for_online_replan": False,
         "used_a_star_for_online_replan": False,
         "used_oracle_waypoint_for_online_replan": False,
+        "used_evaluator_success_for_online_replan": False,
+        "used_map_cell_progress_for_online_replan": False,
         "policy_input_fields": [
             "instruction",
             "head_camera_image",
@@ -1332,6 +1653,7 @@ def write_audits(
         reason = row["failure_reason"] or "success"
         failure_breakdown[method][reason] = failure_breakdown[method].get(reason, 0) + 1
     write_json(data_dir / "failure_reason_breakdown.json", failure_breakdown)
+    write_json(data_dir / "ppsr_v2_failure_reason_breakdown.json", {PPSR_V2_METHOD_NAME: failure_breakdown.get(PPSR_V2_METHOD_NAME, {})})
 
     visual_examples = []
     for row in dmps_candidate_rows[:20]:
@@ -1374,6 +1696,48 @@ def write_audits(
     }
     write_json(data_dir / "progress_monitor_audit.json", progress_monitor_audit)
 
+    ppsr_v2_candidate_rows = [row for row in dmps_candidate_rows if row.get("method") == PPSR_V2_METHOD_NAME]
+    ppsr_v2_selected_rows = [row for row in dmps_selected_rows if row.get("method") == PPSR_V2_METHOD_NAME]
+    anti_mask_rows = [row for row in ppsr_v2_candidate_rows if int(row.get("hard_mask_applied", 0))]
+    anti_turn_loop_mask_audit = {
+        "candidate_rows": len(ppsr_v2_candidate_rows),
+        "hard_mask_applied_count": len(anti_mask_rows),
+        "hard_mask_reason_counts": dict(
+            Counter(
+                reason
+                for row in anti_mask_rows
+                for reason in _json_list(row.get("hard_mask_reasons"))
+            )
+        ),
+        "masked_candidate_count": sum(len(_json_list(row.get("masked_candidates"))) for row in anti_mask_rows),
+        "translation_required_count": sum(int(row.get("translation_required", 0)) for row in ppsr_v2_candidate_rows),
+        "turn_only_candidate_blocked_count": sum(int(row.get("turn_only_candidate_blocked", 0)) for row in ppsr_v2_candidate_rows),
+        "repeated_turn_loop_blocked_count": sum(int(row.get("repeated_turn_loop_blocked", 0)) for row in ppsr_v2_candidate_rows),
+    }
+    write_json(data_dir / "anti_turn_loop_mask_audit.json", anti_turn_loop_mask_audit)
+
+    ppsr_v2_summary = next((row for row in method_summary if row["method"] == PPSR_V2_METHOD_NAME), {})
+    ppsr_v1_summary = next((row for row in method_summary if row["method"] == DMPS_METHOD_NAME), {})
+    readiness_progress_metrics = {
+        "post_reject_clearance_gain": ppsr_v2_summary.get("post_reject_clearance_gain", 0.0),
+        "post_reject_forward_reenabled_rate": ppsr_v2_summary.get("post_reject_forward_reenabled_rate", 0.0),
+        "post_reject_unblocked_rate": ppsr_v2_summary.get("post_reject_unblocked_rate", 0.0),
+        "post_reject_visual_novelty_rate": ppsr_v2_summary.get("post_reject_visual_novelty_rate", 0.0),
+        "escape_macro_selected_count": ppsr_v2_summary.get("escape_macro_selected_count", 0),
+        "escape_macro_selected_rate": ppsr_v2_summary.get("escape_macro_selected_rate", 0.0),
+        "escape_macro_commitment_count": ppsr_v2_summary.get("escape_macro_commitment_count", 0),
+        "escape_macro_commitment_success_rate": ppsr_v2_summary.get("escape_macro_commitment_success_rate", 0.0),
+        "turn_only_recovery_count": ppsr_v2_summary.get("turn_only_recovery_count", 0),
+        "turn_only_recovery_rate": ppsr_v2_summary.get("turn_only_recovery_rate", 0.0),
+        "small_turn_recovery_count": ppsr_v2_summary.get("small_turn_recovery_count", 0),
+        "small_turn_recovery_rate": ppsr_v2_summary.get("small_turn_recovery_rate", 0.0),
+        "small_turn_recovery_delta_vs_ppsr_v1": float(ppsr_v2_summary.get("small_turn_recovery_rate", 0.0))
+        - float(ppsr_v1_summary.get("small_turn_recovery_rate", 0.0)),
+        "recovery_stuck_delta_vs_ppsr_v1": int(ppsr_v2_summary.get("dmps_recovery_stuck_count", 0))
+        - int(ppsr_v1_summary.get("dmps_recovery_stuck_count", 0)),
+    }
+    write_json(data_dir / "readiness_progress_metrics.json", readiness_progress_metrics)
+
     return {
         "wall_feature_audit": wall_feature_audit,
         "stop_source_audit": stop_source_audit,
@@ -1385,6 +1749,8 @@ def write_audits(
         "visual_free_space_audit": visual_free_space_audit,
         "intent_score_audit": intent_score_audit,
         "progress_monitor_audit": progress_monitor_audit,
+        "anti_turn_loop_mask_audit": anti_turn_loop_mask_audit,
+        "readiness_progress_metrics": readiness_progress_metrics,
         "dmps_rollout_count": len(dmps_rollout_rows),
     }
 
@@ -1395,7 +1761,8 @@ def draw_comparison_figures(figures_dir: Path, method_summary: list[dict[str, An
     figures_dir.mkdir(parents=True, exist_ok=True)
 
     def bar_chart(path: Path, title: str, key: str, color: tuple[int, int, int]) -> None:
-        image = Image.new("RGB", (900, 420), (248, 248, 248))
+        width = max(900, 190 * max(1, len(method_summary)) + 120)
+        image = Image.new("RGB", (width, 440), (248, 248, 248))
         draw = ImageDraw.Draw(image)
         draw.text((30, 20), title, fill=(0, 0, 0))
         values = [float(row.get(key, 0.0)) for row in method_summary]
@@ -1403,20 +1770,28 @@ def draw_comparison_figures(figures_dir: Path, method_summary: list[dict[str, An
         max_value = max(values + [0.0])
         span = max(max_value - min_value, 1e-6)
         baseline_y = 340 - int(280 * (0.0 - min_value) / span)
-        draw.line([(50, baseline_y), (870, baseline_y)], fill=(120, 120, 120), width=1)
+        draw.line([(50, baseline_y), (width - 30, baseline_y)], fill=(120, 120, 120), width=1)
         x = 70
+        bar_width = 115
         for row in method_summary:
             value = float(row.get(key, 0.0))
             value_y = 340 - int(280 * (value - min_value) / span)
             y0 = min(value_y, baseline_y)
             y1 = max(value_y, baseline_y)
-            draw.rectangle([x, y0, x + 120, y1], fill=color)
-            draw.text((x, 348), str(row["method"])[:18], fill=(0, 0, 0))
+            draw.rectangle([x, y0, x + bar_width, y1], fill=color)
+            label = str(row["method"]).replace("vln_", "")[:20]
+            draw.text((x, 348), label, fill=(0, 0, 0))
             label_y = max(42, min(y0 - 18, 360))
-            draw.text((x + 20, label_y), f"{value:.2f}", fill=(0, 0, 0))
-            x += 240
+            draw.text((x + 16, label_y), f"{value:.2f}", fill=(0, 0, 0))
+            x += 185
         image.save(path)
 
+    bar_chart(figures_dir / "safe_success_comparison.png", "Safe success rate", "safe_success_rate", (40, 145, 85))
+    bar_chart(figures_dir / "unsafe_comparison.png", "Unsafe violation rate", "unsafe_violation_rate", (190, 85, 55))
+    bar_chart(figures_dir / "small_turn_recovery_reduction.png", "Small-turn recovery rate", "small_turn_recovery_rate", (130, 95, 180))
+    bar_chart(figures_dir / "recovery_stuck_comparison.png", "Recovery stuck count", "dmps_recovery_stuck_count", (180, 120, 50))
+    bar_chart(figures_dir / "readiness_progress_comparison.png", "Post-reject forward re-enabled rate", "post_reject_forward_reenabled_rate", (75, 130, 180))
+    bar_chart(figures_dir / "escape_macro_usage.png", "Escape macro selected count", "escape_macro_selected_count", (70, 115, 190))
     bar_chart(figures_dir / "success_vs_safe_success.png", "Safe success rate", "safe_success_rate", (40, 145, 85))
     bar_chart(figures_dir / "collision_breakdown.png", "Wall contact steps", "wall_contact_steps", (190, 85, 55))
     bar_chart(figures_dir / "reject_replan_outcomes.png", "CASA replan count", "casa_replan_count", (70, 115, 190))
@@ -1428,8 +1803,6 @@ def draw_comparison_figures(figures_dir: Path, method_summary: list[dict[str, An
 
 def audit_final_status(method_summary: list[dict[str, Any]], audits: dict[str, Any]) -> str:
     by_method = {row["method"]: row for row in method_summary}
-    if "vln_only" not in by_method:
-        return "FAILED_EVALUATION_BUT_AUDITABLE"
     if not audits["casa_vln_bridge_audit"]["loaded_real_casa_artifacts"]:
         return "PARTIAL_BLOCKED_ENGINEERING"
     leakage = audits["privileged_leakage_audit"]
@@ -1440,9 +1813,47 @@ def audit_final_status(method_summary: list[dict[str, Any]], audits: dict[str, A
             "used_shortest_path_for_online_replan",
             "used_a_star_for_online_replan",
             "used_oracle_waypoint_for_online_replan",
+            "used_evaluator_success_for_online_replan",
+            "used_map_cell_progress_for_online_replan",
         ]
     ):
         return "FAILED_PRIVILEGED_LEAKAGE"
+    if audits["stop_source_audit"]["casa_stop_rows_counted_as_policy_stop"] != 0:
+        return "FAILED_EVALUATION_BUT_AUDITABLE"
+
+    if PPSR_V2_METHOD_NAME in by_method:
+        ppsr_v2 = by_method[PPSR_V2_METHOD_NAME]
+        ppsr_v1 = by_method.get(DMPS_METHOD_NAME)
+        baseline = by_method.get("vln_only")
+        if ppsr_v1 is None:
+            return "FAILED_EVALUATION_BUT_AUDITABLE"
+        if float(ppsr_v2["unsafe_violation_rate"]) > float(ppsr_v1["unsafe_violation_rate"]) + 0.05:
+            return "FAILED_SAFETY_REGRESSION"
+        if int(ppsr_v2.get("escape_macro_selected_count", 0)) <= 0 or int(ppsr_v2.get("escape_macro_commitment_count", 0)) <= 0:
+            return "FAILED_ESCAPE_MACRO_NOT_USED"
+        readiness = audits.get("readiness_progress_metrics", {})
+        close_to_vln = True
+        if baseline is not None:
+            close_to_vln = float(ppsr_v2["safe_success_rate"]) >= float(baseline["safe_success_rate"]) - 0.05
+        clearance_or_progress = (
+            float(readiness.get("post_reject_clearance_gain", 0.0)) > 0.0
+            or float(ppsr_v2.get("positive_post_reject_progress_rate", 0.0))
+            > float(ppsr_v1.get("positive_post_reject_progress_rate", 0.0))
+        )
+        improves = (
+            float(ppsr_v2["safe_success_rate"]) >= float(ppsr_v1["safe_success_rate"])
+            and close_to_vln
+            and float(ppsr_v2.get("small_turn_recovery_rate", 0.0))
+            < float(ppsr_v1.get("small_turn_recovery_rate", 0.0))
+            and int(ppsr_v2.get("dmps_recovery_stuck_count", 0))
+            < int(ppsr_v1.get("dmps_recovery_stuck_count", 0))
+            and float(ppsr_v2.get("post_reject_forward_reenabled_rate", 0.0)) > 0.0
+            and clearance_or_progress
+        )
+        return "PASS_PPSR_V2_ESCAPE_IMPROVES" if improves else "PASS_IMPLEMENTED_BUT_NO_IMPROVEMENT"
+
+    if "vln_only" not in by_method:
+        return "FAILED_EVALUATION_BUT_AUDITABLE"
     if DMPS_METHOD_NAME in by_method and "vln_casa_replan" in by_method:
         dmps = by_method[DMPS_METHOD_NAME]
         naive = by_method["vln_casa_replan"]
@@ -1476,24 +1887,45 @@ def audit_final_status(method_summary: list[dict[str, Any]], audits: dict[str, A
 def comparison_metrics(method_summary: list[dict[str, Any]]) -> dict[str, float | None]:
     by_method = {row["method"]: row for row in method_summary}
     dmps = by_method.get(DMPS_METHOD_NAME)
+    ppsr_v2 = by_method.get(PPSR_V2_METHOD_NAME)
     vln = by_method.get("vln_only")
     naive = by_method.get("vln_casa_replan")
-    if dmps is None:
+    target = ppsr_v2 or dmps
+    if target is None:
         return {}
 
-    def delta(key: str, other: dict[str, Any] | None) -> float | None:
+    def delta(row: dict[str, Any], key: str, other: dict[str, Any] | None) -> float | None:
         if other is None:
             return None
-        return float(dmps.get(key, 0.0)) - float(other.get(key, 0.0))
+        return float(row.get(key, 0.0)) - float(other.get(key, 0.0))
 
-    return {
-        "dmps_safe_success_delta_vs_vln_only": delta("safe_success_rate", vln),
-        "dmps_safe_success_delta_vs_naive_replan": delta("safe_success_rate", naive),
-        "dmps_unsafe_delta_vs_vln_only": delta("unsafe_violation_rate", vln),
-        "dmps_unsafe_delta_vs_naive_replan": delta("unsafe_violation_rate", naive),
-        "dmps_post_reject_progress_delta_vs_naive_replan": delta("mean_post_reject_progress", naive),
-        "dmps_fallback_to_stop_delta_vs_naive_replan": delta("fallback_to_stop_rate", naive),
-    }
+    metrics: dict[str, float | None] = {}
+    if dmps is not None:
+        metrics.update(
+            {
+                "dmps_safe_success_delta_vs_vln_only": delta(dmps, "safe_success_rate", vln),
+                "dmps_safe_success_delta_vs_naive_replan": delta(dmps, "safe_success_rate", naive),
+                "dmps_unsafe_delta_vs_vln_only": delta(dmps, "unsafe_violation_rate", vln),
+                "dmps_unsafe_delta_vs_naive_replan": delta(dmps, "unsafe_violation_rate", naive),
+                "dmps_post_reject_progress_delta_vs_naive_replan": delta(dmps, "mean_post_reject_progress", naive),
+                "dmps_fallback_to_stop_delta_vs_naive_replan": delta(dmps, "fallback_to_stop_rate", naive),
+            }
+        )
+    if ppsr_v2 is not None:
+        metrics.update(
+            {
+                "ppsr_v2_safe_success_delta_vs_ppsr_v1": delta(ppsr_v2, "safe_success_rate", dmps),
+                "ppsr_v2_safe_success_delta_vs_vln_only": delta(ppsr_v2, "safe_success_rate", vln),
+                "ppsr_v2_unsafe_delta_vs_ppsr_v1": delta(ppsr_v2, "unsafe_violation_rate", dmps),
+                "ppsr_v2_small_turn_rate_delta_vs_ppsr_v1": delta(ppsr_v2, "small_turn_recovery_rate", dmps),
+                "ppsr_v2_stuck_count_delta_vs_ppsr_v1": delta(ppsr_v2, "dmps_recovery_stuck_count", dmps),
+                "ppsr_v2_post_reject_progress_delta_vs_ppsr_v1": delta(ppsr_v2, "mean_post_reject_progress", dmps),
+                "ppsr_v2_forward_reenabled_rate": float(ppsr_v2.get("post_reject_forward_reenabled_rate", 0.0)),
+                "ppsr_v2_escape_macro_selected_count": float(ppsr_v2.get("escape_macro_selected_count", 0.0)),
+                "ppsr_v2_escape_macro_commitment_count": float(ppsr_v2.get("escape_macro_commitment_count", 0.0)),
+            }
+        )
+    return metrics
 
 
 def _git_text(args: list[str]) -> str:
@@ -1512,7 +1944,7 @@ def write_report(
     report: dict[str, Any],
 ) -> None:
     lines = [
-        "# DMPS MPC-CBF Progress-Preserving VLN Safety Report",
+        "# PPSR-v2 Escape-Macro Progress-Preserving VLN Safety Report",
         "",
         f"- final_status: `{final_status}`",
         f"- output_dir: `{output_dir}`",
@@ -1522,21 +1954,28 @@ def write_report(
         f"- gate_method: `{config.gate_method}`",
         f"- dmps_horizon: `{config.dmps_horizon}`",
         f"- safety_margin: `{config.safety_margin}`",
+        f"- ppsr_v2_horizon_default: `{config.ppsr_v2_horizon_default}`",
+        f"- ppsr_v2_horizon_stuck: `{config.ppsr_v2_horizon_stuck}`",
+        f"- ppsr_v2_max_commit_steps: `{config.ppsr_v2_max_commit_steps}`",
+        f"- ppsr_v2_safety_margin: `{config.ppsr_v2_safety_margin}`",
         f"- method_alias: `{DMPS_ALIAS}` == `{DMPS_METHOD_NAME}`",
+        f"- ppsr_v2_aliases: `{','.join(PPSR_V2_ALIASES)}` == `{PPSR_V2_METHOD_NAME}`",
         f"- phase4_root: `{config.phase4_root}`",
         f"- phase5_root: `{config.phase5_root}`",
         "",
         "## Method Summary",
         "",
-        "| method | safe_success_rate | success_rate | unsafe_violation_rate | wall_contact_steps | reject_count | replan_count | mean_post_reject_progress | fallback_to_stop_rate |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| method | safe_success_rate | success_rate | unsafe_violation_rate | wall_contact_steps | reject_count | replan_count | mean_post_reject_progress | fallback_to_stop_rate | small_turn_rate | stuck_count | escape_macros | commitments | forward_reenabled_rate |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in method_summary:
         lines.append(
             f"| {row['method']} | {row['safe_success_rate']:.3f} | {row['success_rate']:.3f} | "
             f"{row['unsafe_violation_rate']:.3f} | {row['wall_contact_steps']} | "
             f"{row['reject_count']} | {row['replan_count']} | {row['mean_post_reject_progress']:.3f} | "
-            f"{row['fallback_to_stop_rate']:.3f} |"
+            f"{row['fallback_to_stop_rate']:.3f} | {row.get('small_turn_recovery_rate', 0.0):.3f} | "
+            f"{row.get('dmps_recovery_stuck_count', 0)} | {row.get('escape_macro_selected_count', 0)} | "
+            f"{row.get('escape_macro_commitment_count', 0)} | {row.get('post_reject_forward_reenabled_rate', 0.0):.3f} |"
         )
     lines.extend(
         [
@@ -1558,6 +1997,26 @@ def write_report(
             "13. Visual free-space uses a first-person left/center/right brightness-edge proxy; fallback is logged if image read fails.",
             "14. The paper claim is supported only if final_status is `PASS_DMPS_PROGRESS_REPLAN_IMPROVES`.",
             "",
+            "## PPSR-v2 Required Audit Answers",
+            "",
+            "1. PPSR-v2 method name: `vln_ppsr_v2_escape_macro`; aliases normalize to the same canonical method.",
+            "2. It is inserted only after a CASA rejection; nominal `vln_only` behavior is not replaced.",
+            "3. The old PPSR-v1 turn-loop failure is addressed with a hard anti-turn-loop mask, not just a soft score penalty.",
+            "4. Translation is required in stuck mode whenever a safe translation candidate exists.",
+            "5. Escape macros are generated only under the stuck/repeated-reject signal and are logged in `escape_macro_candidates.csv`.",
+            "6. Terminal scoring explicitly checks whether short forward motion becomes feasible after the candidate sequence.",
+            "7. Two-step commitment is allowed only for safe, translating stuck-mode sequences and is rechecked before the second skill.",
+            "8. Commitment aborts are logged in `escape_commitment_logs.csv`; aborted safety stops are non-success stops.",
+            "9. PPSR-v2 does not use final goal distance, evaluator success, shortest path, A*, map-cell progress, or oracle waypoint online.",
+            "10. Stop-source auditing keeps CASA/PPSR stops separate from policy stop success.",
+            "11. Unsafe evaluation remains the same wall/fall oracle used by vln_only, vln_casa_replan, and PPSR-v1.",
+            "12. Safety regression is reported as `FAILED_SAFETY_REGRESSION` if PPSR-v2 unsafe rate exceeds PPSR-v1 by more than 0.05.",
+            "13. `FAILED_ESCAPE_MACRO_NOT_USED` is reported if escape macros or commitments are never selected.",
+            "14. `PASS_PPSR_V2_ESCAPE_IMPROVES` requires safe success not below PPSR-v1, no safety regression, lower small-turn and stuck rates, macro use, commitments, and readiness improvement.",
+            "15. If those strict conditions fail but logs are complete, the status is `PASS_IMPLEMENTED_BUT_NO_IMPROVEMENT` or another explicit failure status.",
+            "16. Required v2 artifacts are under `data/`: candidate sequences, selected replans, mask audit, terminal score audit, commitment logs, readiness metrics, and failure breakdown.",
+            "17. Required v2 figures are under `figures/`: safe success, unsafe, small-turn, stuck, readiness, escape usage, and post-reject progress comparisons.",
+            "",
             "## Stop Source Rule",
             "",
             "CASA/DMPS safety stops are not counted as policy-issued task success. "
@@ -1571,6 +2030,7 @@ def write_report(
     )
     for path in report.get("video_paths", [])[:30]:
         lines.append(f"- `{path}`")
+    (output_dir / "ppsr_v2_escape_macro_report.md").write_text("\n".join(lines) + "\n")
     (output_dir / "dmps_mpc_cbf_progress_report.md").write_text("\n".join(lines) + "\n")
     (output_dir / "casa_vln_safety_report.md").write_text("\n".join(lines) + "\n")
     (output_dir / "README.md").write_text("\n".join(lines[:22]) + "\n")
@@ -1705,6 +2165,7 @@ def run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
     by_method = {method: [row for row in episode_metrics if row["method"] == method] for method in config.methods}
     method_summary = [aggregate_method(rows) for rows in by_method.values()]
     write_table_csv(dirs["data"] / "method_summary.csv", method_summary)
+    write_table_csv(dirs["data"] / "ppsr_v2_method_summary.csv", [row for row in method_summary if row["method"] == PPSR_V2_METHOD_NAME])
     write_json(dirs["data"] / "method_summary.json", method_summary)
     audits = write_audits(
         data_dir=dirs["data"],
@@ -1739,6 +2200,7 @@ def run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
         "dataset_path": str(dataset_path),
         "adapter_path": str(adapter_path),
         "policy_backend": config.policy_backend,
+        "navid_cuda_visible_devices": config.navid_cuda_visible_devices,
         "policy_name": policy.name,
         "real_navid_or_uninavid_used": bool(
             config.policy_backend in {"real_navid", "real_navid_visual_adapter"}
@@ -1752,12 +2214,20 @@ def run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
         "previous_casa_vln_result_path": str(config.previous_casa_vln_result_path),
         "dmps_horizon": config.dmps_horizon,
         "safety_margin": config.safety_margin,
+        "ppsr_v2_horizon_default": config.ppsr_v2_horizon_default,
+        "ppsr_v2_horizon_stuck": config.ppsr_v2_horizon_stuck,
+        "ppsr_v2_max_commit_steps": config.ppsr_v2_max_commit_steps,
+        "ppsr_v2_safety_margin": config.ppsr_v2_safety_margin,
+        "ppsr_v2_score_config": str(config.ppsr_v2_score_config) if config.ppsr_v2_score_config else None,
         "score_weights": config.score_weights or DEFAULT_SCORE_WEIGHTS,
+        "ppsr_v2_score_weights": {**PPSR_V2_SCORE_WEIGHTS, **(config.score_weights or {})},
         "visual_free_space_available": audits["visual_free_space_audit"]["visual_free_space_score_available"],
         "used_goal_distance_for_online_replan": False,
         "used_shortest_path_for_online_replan": False,
         "used_a_star_for_online_replan": False,
         "used_oracle_waypoint_for_online_replan": False,
+        "used_evaluator_success_for_online_replan": False,
+        "used_map_cell_progress_for_online_replan": False,
         "python_executable": os.sys.executable,
         "risk_source": "real_casa_critic",
         "method_summary": method_summary,
@@ -1837,12 +2307,18 @@ def parse_args(argv: list[str] | None = None) -> CasaVlnRunnerConfig:
     parser.add_argument("--navid-python", type=Path, default=NAVID_PYTHON)
     parser.add_argument("--navid-vision-tower", type=Path, default=NAVID_VISION_TOWER)
     parser.add_argument("--navid-worker-timeout-s", type=float, default=900.0)
+    parser.add_argument("--navid-cuda-visible-devices", default=None)
     parser.add_argument("--gate-method", default="casa_a_hard_or_per_skill")
     parser.add_argument("--max-consecutive-casa-recovery-steps", type=int, default=1)
     parser.add_argument("--max-consecutive-dmps-recovery-steps", type=int, default=1)
     parser.add_argument("--dmps-horizon", type=int, default=2)
     parser.add_argument("--safety-margin", type=float, default=0.05)
     parser.add_argument("--progress-score-config", type=Path, default=None)
+    parser.add_argument("--ppsr-v2-horizon-default", type=int, default=2)
+    parser.add_argument("--ppsr-v2-horizon-stuck", type=int, default=3)
+    parser.add_argument("--ppsr-v2-max-commit-steps", type=int, default=2)
+    parser.add_argument("--ppsr-v2-safety-margin", type=float, default=0.05)
+    parser.add_argument("--ppsr-v2-score-config", type=Path, default=None)
     parser.add_argument("--previous-casa-vln-result-path", type=Path, default=Path("/mnt/data/students/lph/recording/casa_vln_safety_locked_real_navid_20260611_190121"))
     parser.add_argument("--record-video", action="store_true", default=True)
     parser.add_argument("--dry-run", default="false")
@@ -1877,13 +2353,19 @@ def parse_args(argv: list[str] | None = None) -> CasaVlnRunnerConfig:
         navid_python=args.navid_python,
         navid_vision_tower=args.navid_vision_tower,
         navid_worker_timeout_s=args.navid_worker_timeout_s,
+        navid_cuda_visible_devices=args.navid_cuda_visible_devices,
         gate_method=args.gate_method,
         max_consecutive_casa_recovery_steps=args.max_consecutive_casa_recovery_steps,
         max_consecutive_dmps_recovery_steps=args.max_consecutive_dmps_recovery_steps,
         dmps_horizon=args.dmps_horizon,
         safety_margin=args.safety_margin,
+        ppsr_v2_horizon_default=args.ppsr_v2_horizon_default,
+        ppsr_v2_horizon_stuck=args.ppsr_v2_horizon_stuck,
+        ppsr_v2_max_commit_steps=args.ppsr_v2_max_commit_steps,
+        ppsr_v2_safety_margin=args.ppsr_v2_safety_margin,
+        ppsr_v2_score_config=args.ppsr_v2_score_config,
         progress_score_config=args.progress_score_config,
-        score_weights=load_score_weights(args.progress_score_config),
+        score_weights=load_score_weights(args.ppsr_v2_score_config or args.progress_score_config),
         previous_casa_vln_result_path=args.previous_casa_vln_result_path,
         seeds=seeds,
         record_video=args.record_video,

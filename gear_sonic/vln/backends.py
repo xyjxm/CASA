@@ -85,6 +85,7 @@ class NaVidBackend:
         vision_tower_path: Path | None = None,
         worker_timeout_s: float = 900.0,
         max_new_tokens: int = 64,
+        cuda_visible_devices: str | None = None,
         seed: int = 11,
     ) -> None:
         if variant not in {"navid", "uni-navid"}:
@@ -99,6 +100,7 @@ class NaVidBackend:
         self.vision_tower_path = Path(vision_tower_path) if vision_tower_path else None
         self.worker_timeout_s = worker_timeout_s
         self.max_new_tokens = max_new_tokens
+        self.cuda_visible_devices = cuda_visible_devices
         self.rng = random.Random(seed)
         self.name = f"{variant.replace('-', '_')}_real_model_inference" if strict_model else variant
         self.episode_step = 0
@@ -158,6 +160,7 @@ class NaVidBackend:
             "python_executable_exists": python_exists,
             "vision_tower_path": str(vision_tower),
             "vision_tower_exists": vision_tower_exists,
+            "cuda_visible_devices": self.cuda_visible_devices or os.environ.get("CUDA_VISIBLE_DEVICES"),
             "model_loaded": False,
             "model_unavailable_reason": ",".join(unavailable_reasons) if unavailable_reasons else None,
         }
@@ -219,6 +222,9 @@ class NaVidBackend:
         env["PYTHONPATH"] = str(self.repo_path) + os.pathsep + env.get("PYTHONPATH", "")
         env.setdefault("TOKENIZERS_PARALLELISM", "false")
         env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:128")
+        env.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
+        if self.cuda_visible_devices:
+            env["CUDA_VISIBLE_DEVICES"] = self.cuda_visible_devices
         cmd = [
             str(python),
             "-u",

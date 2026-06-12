@@ -1,0 +1,26 @@
+{
+  "output_dir": "/mnt/data/students/lph/recording/vln_ppsr_v2_escape_macro_locked_20260612_185743/locked_20_real_navid_gpu0_uuid",
+  "source_worktree": "/mnt/data/students/lph/CASA_vln_safety_work",
+  "branch": "vln-navid-stop-turn-opt-20260611",
+  "base_commit": "5256627e1d8deac5aaed5be464951d1c0b1d9a3b",
+  "command": "CUDA_VISIBLE_DEVICES=GPU-8b1188b9-c3d8-a887-a7f9-073ccd6e33fb NVIDIA_VISIBLE_DEVICES=GPU-8b1188b9-c3d8-a887-a7f9-073ccd6e33fb /mnt/data/students/lph/GR00T-WholeBodyControl/.venv_sim/bin/python -u gear_sonic/scripts/casa_run_vln_safety_online.py --output-dir /mnt/data/students/lph/recording/vln_ppsr_v2_escape_macro_locked_20260612_185743/locked_20_real_navid_gpu0_uuid --methods vln_only,vln_casa_replan,vln_dmps_mpc_cbf_progress,vln_ppsr_v2_escape_macro --heldout-episodes 20 --auto-demo-count 30 --visual-adapter-epochs 80 --max-steps 48 --frame-width 320 --frame-height 240 --policy-backend real_navid_visual_adapter --seeds 260611 --navid-cuda-visible-devices GPU-8b1188b9-c3d8-a887-a7f9-073ccd6e33fb --ppsr-v2-horizon-default 2 --ppsr-v2-horizon-stuck 3 --ppsr-v2-max-commit-steps 2 --ppsr-v2-safety-margin 0.05 --dry-run false",
+  "timestamp_local": "2026-06-12 18:57:43 Asia/Shanghai",
+  "final_status": "PASS_IMPLEMENTED_BUT_NO_IMPROVEMENT",
+  "large_outputs_committed": false,
+  "files_hashed": [
+    "README.md",
+    "ppsr_v2_escape_macro_report.md",
+    "run_manifest.json",
+    "data/method_summary.csv",
+    "data/ppsr_v2_method_summary.csv",
+    "data/anti_turn_loop_mask_audit.json",
+    "data/readiness_progress_metrics.json",
+    "data/ppsr_v2_failure_reason_breakdown.json",
+    "figures/safe_success_comparison.png",
+    "figures/unsafe_comparison.png",
+    "figures/small_turn_recovery_reduction.png",
+    "figures/recovery_stuck_comparison.png",
+    "figures/readiness_progress_comparison.png",
+    "figures/escape_macro_usage.png"
+  ]
+}
