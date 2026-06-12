@@ -30,6 +30,7 @@ POLICY_STOP_SOURCES = {"vln_policy", "policy_internal_guard"}
 NON_SUCCESS_STOP_SOURCES = {
     "casa_reject_only_stop",
     "casa_replan_last_resort_stop",
+    "dmps_mpc_cbf_last_resort_stop",
     "runtime_wait",
     "episode_boundary_idle",
     "safety_reset_idle",

@@ -1,0 +1,101 @@
+{
+  "artifact_created_at_utc": "2026-06-12T02:16:48.586968+00:00",
+  "command_reconstruction": {
+    "dmps_horizon": 2,
+    "heldout_episodes": 20,
+    "max_steps": 48,
+    "methods": "vln_only,vln_casa_reject_only,vln_casa_replan,vln_dmps_mpc_cbf_progress",
+    "output_dir": "/mnt/data/students/lph/recording/vln_dmps_mpc_cbf_progress_20260611_212246",
+    "policy_backend": "real_navid_visual_adapter",
+    "safety_margin": 0.05,
+    "seeds": [
+      260611
+    ]
+  },
+  "final_status": "PASS_IMPLEMENTED_BUT_NO_IMPROVEMENT",
+  "git_commit_at_run_start": "c8531e82cc0679ac2f1c76b74ef8942e200b8a9c",
+  "git_status_short_at_run_start": "M gear_sonic/vln/casa_bridge.py\n M gear_sonic/vln/casa_runner.py\n?? gear_sonic/tests/vln/test_dmps_mpc_cbf_replan.py\n?? gear_sonic/vln/dmps_mpc_cbf_replan.py\n?? gear_sonic/vln/progress_monitor.py",
+  "hashes": [
+    {
+      "bytes": 6810,
+      "path": "/mnt/data/students/lph/recording/vln_dmps_mpc_cbf_progress_20260611_212246/dmps_mpc_cbf_progress_report.md",
+      "relative_path": "dmps_mpc_cbf_progress_report.md",
+      "sha256": "53dfee63cbe93e4f167c98bbb2eedac94f2c5d19358c395ac6e8fc3744c003e3"
+    },
+    {
+      "bytes": 502968,
+      "path": "/mnt/data/students/lph/recording/vln_dmps_mpc_cbf_progress_20260611_212246/run_manifest.json",
+      "relative_path": "run_manifest.json",
+      "sha256": "cbeeb18ce11af87b4fb4b7be83fe13b672fc2dfd3c53d6136cde25b89b65c2bf"
+    },
+    {
+      "bytes": 2683,
+      "path": "/mnt/data/students/lph/recording/vln_dmps_mpc_cbf_progress_20260611_212246/data/method_summary.csv",
+      "relative_path": "data/method_summary.csv",
+      "sha256": "9847ed552feb49c254fa1f27fdbc4f6474b6847fc6ccadb1abb63dc00b24dd68"
+    },
+    {
+      "bytes": 7344,
+      "path": "/mnt/data/students/lph/recording/vln_dmps_mpc_cbf_progress_20260611_212246/data/method_summary.json",
+      "relative_path": "data/method_summary.json",
+      "sha256": "49c43dfb904b96dab018238c2f5b743db656e94e6737168fee11bfe10ea44d2d"
+    },
+    {
+      "bytes": 1260859,
+      "path": "/mnt/data/students/lph/recording/vln_dmps_mpc_cbf_progress_20260611_212246/data/dmps_candidate_sequences.csv",
+      "relative_path": "data/dmps_candidate_sequences.csv",
+      "sha256": "00e76360a13786b1accd66d232598e8e7e4c21b42ce4b56b51f6e51798d365bd"
+    },
+    {
+      "bytes": 73649,
+      "path": "/mnt/data/students/lph/recording/vln_dmps_mpc_cbf_progress_20260611_212246/data/dmps_selected_replans.csv",
+      "relative_path": "data/dmps_selected_replans.csv",
+      "sha256": "915156cfa1517a9c238c350847528bf80b1a93ce81338329d43618b765f87c05"
+    },
+    {
+      "bytes": 11163453,
+      "path": "/mnt/data/students/lph/recording/vln_dmps_mpc_cbf_progress_20260611_212246/data/dmps_mpc_cbf_rollouts.jsonl",
+      "relative_path": "data/dmps_mpc_cbf_rollouts.jsonl",
+      "sha256": "18a84872c1a041162e14733072eec219473bed353c64cc40a8923dd91cf4aac6"
+    },
+    {
+      "bytes": 1873194,
+      "path": "/mnt/data/students/lph/recording/vln_dmps_mpc_cbf_progress_20260611_212246/data/progress_monitor_events.jsonl",
+      "relative_path": "data/progress_monitor_events.jsonl",
+      "sha256": "84b971c1fcb2e6890208191d44e63aa94120544f532e87468fa1e9adf9a0e903"
+    },
+    {
+      "bytes": 2557,
+      "path": "/mnt/data/students/lph/recording/vln_dmps_mpc_cbf_progress_20260611_212246/data/progress_monitor_audit.json",
+      "relative_path": "data/progress_monitor_audit.json",
+      "sha256": "aaaa616a60ff4c39514093488002a25104209755495b47feaeba2ede1801a411"
+    },
+    {
+      "bytes": 3680,
+      "path": "/mnt/data/students/lph/recording/vln_dmps_mpc_cbf_progress_20260611_212246/data/visual_free_space_audit.json",
+      "relative_path": "data/visual_free_space_audit.json",
+      "sha256": "a548c0717a40fc9231d67ee7b6a5cd40d25ac5a8f771f360d15467cf5faef7fe"
+    },
+    {
+      "bytes": 744,
+      "path": "/mnt/data/students/lph/recording/vln_dmps_mpc_cbf_progress_20260611_212246/data/intent_score_audit.json",
+      "relative_path": "data/intent_score_audit.json",
+      "sha256": "e1acad4fb33a9730be102589311d6ad765ab8b62219567ba775366132e769828"
+    },
+    {
+      "bytes": 503,
+      "path": "/mnt/data/students/lph/recording/vln_dmps_mpc_cbf_progress_20260611_212246/data/privileged_leakage_audit.json",
+      "relative_path": "data/privileged_leakage_audit.json",
+      "sha256": "3148c902e0d88f3edec8645cb9f7a2235e75894b01c96345cb747a765a6880f6"
+    }
+  ],
+  "no_privileged_online_replan": {
+    "used_a_star_for_online_replan": false,
+    "used_goal_distance_for_online_replan": false,
+    "used_oracle_waypoint_for_online_replan": false,
+    "used_shortest_path_for_online_replan": false
+  },
+  "python_executable": "/mnt/data/students/lph/GR00T-WholeBodyControl/.venv_sim/bin/python",
+  "run_dir": "/mnt/data/students/lph/recording/vln_dmps_mpc_cbf_progress_20260611_212246",
+  "runner_script": "gear_sonic/scripts/casa_run_vln_safety_online.py"
+}

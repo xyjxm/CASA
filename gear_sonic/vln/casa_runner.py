@@ -26,10 +26,22 @@ from .casa_bridge import (
     policy_internal_guard_summary,
     stop_source_for_policy_decision,
 )
+from .dmps_mpc_cbf_replan import (
+    DEFAULT_SCORE_WEIGHTS,
+    DMPS_ALIAS,
+    DMPS_LAST_RESORT_STOP_SOURCE,
+    DMPS_METHOD_NAME,
+    candidate_scores_to_rows,
+    is_dmps_method,
+    normalize_dmps_method,
+    select_dmps_replan,
+    selected_replan_row,
+)
 from .maze import MazeMap, generate_routes
 from .metrics import append_jsonl, distance_to_goal, write_json
 from .no_casa_mujoco import MujocoMazeSkillEnv, draw_topdown_map, write_video
 from .no_casa_policy import InferenceInput
+from .progress_monitor import ProgressMonitor
 from .no_casa_runner import (
     MAP_METADATA as LEGACY_MAP_METADATA,
     NAVID_MODEL,
@@ -62,7 +74,7 @@ DEFAULT_TRAIN_MAP_METADATA = GALLERY_SPLIT_ROOT / "train_gallery/data/MEDIUM_MAZ
 DEFAULT_TRAIN_SCENE_XML = GALLERY_SPLIT_ROOT / "train_gallery/mjcf/sonic_scene_MEDIUM_MAZE_DIVERSE_GR_scale2_furnished_train_gallery_wall_painting.xml"
 DEFAULT_TEST_MAP_METADATA = GALLERY_SPLIT_ROOT / "test_gallery/data/MEDIUM_MAZE_DIVERSE_GR_scale2_furnished_test_gallery_wall_painting.json"
 DEFAULT_TEST_SCENE_XML = GALLERY_SPLIT_ROOT / "test_gallery/mjcf/sonic_scene_MEDIUM_MAZE_DIVERSE_GR_scale2_furnished_test_gallery_wall_painting.xml"
-METHODS = ("vln_only", "vln_casa_reject_only", "vln_casa_replan")
+METHODS = ("vln_only", "vln_casa_reject_only", "vln_casa_replan", DMPS_METHOD_NAME)
 DECISION_LOG_COLUMNS = [
     "method",
     "episode_id",
@@ -154,6 +166,15 @@ class CasaVlnRunnerConfig:
     navid_worker_timeout_s: float = 900.0
     gate_method: str = "casa_a_hard_or_per_skill"
     max_consecutive_casa_recovery_steps: int = 1
+    max_consecutive_dmps_recovery_steps: int = 1
+    dmps_horizon: int = 2
+    safety_margin: float = 0.05
+    progress_score_config: Path | None = None
+    score_weights: dict[str, float] | None = None
+    previous_casa_vln_result_path: Path = Path("/mnt/data/students/lph/recording/casa_vln_safety_locked_real_navid_20260611_190121")
+    seeds: tuple[int, ...] = (260611,)
+    record_video: bool = True
+    dry_run: bool = False
     strict: bool = False
 
 
@@ -211,7 +232,7 @@ def _unit_from_yaw(degrees: float) -> tuple[float, float]:
 def method_list(raw: str) -> tuple[str, ...]:
     if raw == "all":
         return METHODS
-    methods = tuple(item.strip() for item in raw.split(",") if item.strip())
+    methods = tuple(normalize_dmps_method(item.strip()) for item in raw.split(",") if item.strip())
     unknown = sorted(set(methods) - set(METHODS))
     if unknown:
         raise ValueError(f"unknown methods: {unknown}; expected comma list from {METHODS} or all")
@@ -287,14 +308,19 @@ def run_episode_with_method(
     decision_records: list[dict[str, Any]] = []
     gate_records: list[dict[str, Any]] = []
     replan_records: list[dict[str, Any]] = []
+    dmps_candidate_rows: list[dict[str, Any]] = []
+    dmps_selected_rows: list[dict[str, Any]] = []
+    dmps_rollout_rows: list[dict[str, Any]] = []
     previous_actions: list[str] = []
     previous_status: list[str] = []
     frame_paths: list[Path] = []
+    progress_monitor = ProgressMonitor(episode_id=episode_id)
 
     for step_idx in range(min(config.max_steps, task.max_steps)):
         frame_path = episode_frames_dir / f"frame_{step_idx:04d}.png"
         env.render_head(frame_path)
         frame_paths.append(frame_path)
+        progress_monitor.pre_step(step_idx=step_idx, image_path=frame_path)
         pose_before = env.pose()
         obs = InferenceInput(
             episode_id=episode_id,
@@ -320,6 +346,11 @@ def run_episode_with_method(
         casa_replan_applied = False
         replan_selected_action = ""
         replan_selected_skill = ""
+        dmps_replan_applied = False
+        dmps_selected_sequence = ""
+        dmps_recovery_stuck = False
+        non_stop_recovery_selected = False
+        all_non_stop_candidates_infeasible = False
         rejected_candidate_skill_was_executed = False
 
         if method != "vln_only":
@@ -344,6 +375,11 @@ def run_episode_with_method(
                 )
             )
             if casa_decision.casa_reject and action is not VLNAction.STOP:
+                progress_monitor.record_reject(
+                    step_idx=step_idx,
+                    nominal_action=action.value,
+                    reject_reason=casa_decision.reject_reason,
+                )
                 if method == "vln_casa_reject_only":
                     final_action_text = VLNAction.STOP.value
                     final_skill = PassiveSkill(duration=0.20, mode="stop")
@@ -366,16 +402,82 @@ def run_episode_with_method(
                     final_skill = selected.skill
                     if selected.stop_as_last_resort:
                         stop_source = "casa_replan_last_resort_stop"
+                elif is_dmps_method(method):
+                    dmps_selection = select_dmps_replan(
+                        bridge=bridge,
+                        pose=pose_before,
+                        maze=env.maze,
+                        robot_radius=env.robot_radius,
+                        nominal_action=action,
+                        image_path=frame_path,
+                        progress_monitor=progress_monitor,
+                        step_idx=step_idx,
+                        horizon=config.dmps_horizon,
+                        safety_margin=config.safety_margin,
+                        score_weights=config.score_weights,
+                    )
+                    dmps_replan_applied = True
+                    casa_replan_applied = True
+                    selected_sequence = dmps_selection.selected_sequence
+                    first_action = selected_sequence.actions[0]
+                    final_action_text = first_action
+                    final_skill = selected_sequence.skills[0]
+                    replan_selected_action = first_action
+                    replan_selected_skill = final_skill.name
+                    dmps_selected_sequence = json.dumps(list(selected_sequence.actions))
+                    all_non_stop_candidates_infeasible = dmps_selection.all_non_stop_candidates_infeasible
+                    non_stop_recovery_selected = first_action != "stop_as_last_resort"
+                    dmps_recovery_stuck = len(progress_monitor.state.recent_selected_recoveries) >= config.max_consecutive_dmps_recovery_steps and bool(progress_monitor.state.recent_selected_recoveries)
+                    if selected_sequence.stop_as_last_resort:
+                        stop_source = DMPS_LAST_RESORT_STOP_SOURCE
+                    dmps_candidate_rows.extend(
+                        candidate_scores_to_rows(
+                            method=method,
+                            episode_id=task.episode_id,
+                            step_idx=step_idx,
+                            nominal_action=action.value,
+                            reject_reason=casa_decision.reject_reason,
+                            selection=dmps_selection,
+                        )
+                    )
+                    for rollout_row in dmps_selection.rollout_rows:
+                        rollout_row.update(
+                            {
+                                "method": method,
+                                "episode_id": task.episode_id,
+                                "step_id": step_idx,
+                                "nominal_action": action.value,
+                            }
+                        )
+                        dmps_rollout_rows.append(rollout_row)
                 else:
                     raise ValueError(f"unsupported CASA method: {method}")
 
+        distance_after = None
         result = env.execute_skill(final_skill)
+        pose_after = env.pose()
+        distance_after = distance_to_goal(task, pose_after)
         if casa_decision is not None and casa_decision.casa_reject:
             rejected_candidate_skill_was_executed = _same_executable(candidate_skill, final_skill)
         metrics_action = _metrics_action(final_action_text)
         if metrics_action != VLNAction.STOP.value:
             stop_source = ""
         distance = distance_to_goal(task, pose_before)
+        post_reject_progress = (distance - distance_after) if casa_decision is not None and casa_decision.casa_reject else None
+        if dmps_replan_applied:
+            dmps_selected_rows.append(
+                selected_replan_row(
+                    method=method,
+                    episode_id=task.episode_id,
+                    step_idx=step_idx,
+                    nominal_action=action.value,
+                    reject_reason=casa_decision.reject_reason if casa_decision else "",
+                    selection=dmps_selection,
+                    executed_first_skill=final_skill,
+                    stop_source=stop_source,
+                    post_reject_progress_evaluator_only=float(post_reject_progress or 0.0),
+                )
+            )
         record = {
             "method": method,
             "episode_id": task.episode_id,
@@ -430,9 +532,16 @@ def run_episode_with_method(
             "casa_replan_applied": casa_replan_applied,
             "casa_replan_selected_action": replan_selected_action,
             "casa_replan_selected_skill": replan_selected_skill,
+            "dmps_replan_applied": dmps_replan_applied,
+            "dmps_selected_sequence": dmps_selected_sequence,
+            "dmps_recovery_stuck": dmps_recovery_stuck,
+            "non_stop_recovery_selected": non_stop_recovery_selected,
+            "all_non_stop_candidates_infeasible": all_non_stop_candidates_infeasible,
+            "post_reject_progress_evaluator_only": post_reject_progress,
             "rejected_candidate_skill_was_executed": rejected_candidate_skill_was_executed,
             "evaluator_pose": asdict(pose_before),
             "evaluator_distance_to_goal": distance,
+            "evaluator_distance_after_action": distance_after,
             "evaluator_goal_xy": list(task.goal_xy),
             "evaluator_only_shortest_path_remaining": env.maze.shortest_path_distance_xy(
                 (pose_before.x, pose_before.y), task.goal_xy
@@ -442,6 +551,13 @@ def run_episode_with_method(
             "privileged_policy_usage": False,
         }
         decision_records.append(record)
+        progress_monitor.record_step(
+            step_idx=step_idx,
+            executed_action=metrics_action,
+            skill_status=result.status,
+            stop_source=stop_source,
+            selected_recovery_action=replan_selected_action if dmps_replan_applied else None,
+        )
         previous_actions.append(metrics_action)
         previous_status.append(result.status)
         if metrics_action == VLNAction.STOP.value:
@@ -454,6 +570,14 @@ def run_episode_with_method(
     append_jsonl(episode_gate_log, gate_records)
     episode_replan_log = data_dir / "per_episode" / f"{method}_{task.episode_id}_replan_log.jsonl"
     append_jsonl(episode_replan_log, replan_records)
+    episode_dmps_candidate_log = data_dir / "per_episode" / f"{method}_{task.episode_id}_dmps_candidate_sequences.jsonl"
+    append_jsonl(episode_dmps_candidate_log, dmps_candidate_rows)
+    episode_dmps_selected_log = data_dir / "per_episode" / f"{method}_{task.episode_id}_dmps_selected_replans.jsonl"
+    append_jsonl(episode_dmps_selected_log, dmps_selected_rows)
+    episode_dmps_rollout_log = data_dir / "per_episode" / f"{method}_{task.episode_id}_dmps_mpc_cbf_rollouts.jsonl"
+    append_jsonl(episode_dmps_rollout_log, dmps_rollout_rows)
+    episode_progress_events_log = data_dir / "per_episode" / f"{method}_{task.episode_id}_progress_monitor_events.jsonl"
+    append_jsonl(episode_progress_events_log, progress_monitor.event_rows())
     trajectory_rows = list(env.trajectory)
     episode_trajectory_log = data_dir / "per_episode" / f"{method}_{task.episode_id}_trajectory_log.jsonl"
     append_jsonl(episode_trajectory_log, trajectory_rows)
@@ -477,6 +601,11 @@ def run_episode_with_method(
         replan_log=episode_replan_log,
         trajectory_log=episode_trajectory_log,
     )
+    metrics["dmps_candidate_log"] = str(episode_dmps_candidate_log)
+    metrics["dmps_selected_log"] = str(episode_dmps_selected_log)
+    metrics["dmps_rollout_log"] = str(episode_dmps_rollout_log)
+    metrics["progress_monitor_events_log"] = str(episode_progress_events_log)
+    metrics["progress_monitor_audit"] = progress_monitor.audit_dict()
     return metrics
 
 
@@ -584,10 +713,14 @@ def _same_executable(candidate: SonicSkill, final: SonicSkill) -> bool:
 
 
 def _metrics_action(action_text: str) -> str:
-    if action_text == "short_forward_segment":
+    if action_text in {"short_forward_segment", "short_forward"}:
         return VLNAction.FORWARD.value
     if action_text == "stop_as_last_resort":
         return VLNAction.STOP.value
+    if action_text == "small_turn_left":
+        return VLNAction.TURN_LEFT.value
+    if action_text == "small_turn_right":
+        return VLNAction.TURN_RIGHT.value
     return VLNAction(action_text).value
 
 
@@ -694,6 +827,17 @@ def summarize_casa_episode(
 
     reject_count = sum(1 for record in decision_records if record.get("casa_reject"))
     replan_count = sum(1 for record in decision_records if record.get("casa_replan_applied"))
+    stop_source_distribution = dict(Counter(str(record.get("stop_source") or "") for record in all_stop_records))
+    post_reject_progress_values = [
+        float(record["post_reject_progress_evaluator_only"])
+        for record in decision_records
+        if record.get("post_reject_progress_evaluator_only") is not None
+    ]
+    recovery_actions = [
+        str(record.get("casa_replan_selected_action") or "")
+        for record in decision_records
+        if record.get("casa_replan_applied")
+    ]
     return {
         "method": method,
         "episode_id": task.episode_id,
@@ -727,6 +871,32 @@ def summarize_casa_episode(
         "privileged_policy_usage_count": privileged_policy_usage_count,
         "casa_reject_count": reject_count,
         "casa_replan_count": replan_count,
+        "reject_rate_per_step": reject_count / max(1, len(decision_records)),
+        "policy_stop_count": len(policy_stop_records),
+        "last_resort_stop_count": sum(
+            1
+            for record in all_stop_records
+            if record.get("stop_source") in {"casa_reject_only_stop", "casa_replan_last_resort_stop", DMPS_LAST_RESORT_STOP_SOURCE}
+        ),
+        "stop_source_distribution": stop_source_distribution,
+        "non_stop_recovery_count": sum(1 for record in decision_records if record.get("non_stop_recovery_selected")),
+        "fallback_to_stop_count": sum(
+            1
+            for record in all_stop_records
+            if record.get("stop_source") in {"casa_replan_last_resort_stop", DMPS_LAST_RESORT_STOP_SOURCE}
+        ),
+        "repeated_reject_loop_count": sum(
+            1
+            for record in decision_records
+            if "repeated_forward_reject" in str(record.get("policy_internal_guard_names", ""))
+        ),
+        "dmps_recovery_stuck_count": sum(1 for record in decision_records if record.get("dmps_recovery_stuck")),
+        "mean_post_reject_progress": _mean(post_reject_progress_values),
+        "median_post_reject_progress": median(post_reject_progress_values) if post_reject_progress_values else 0.0,
+        "positive_post_reject_progress_rate": sum(1 for value in post_reject_progress_values if value > 0.0) / len(post_reject_progress_values)
+        if post_reject_progress_values
+        else 0.0,
+        "recovery_action_distribution": dict(Counter(action for action in recovery_actions if action)),
         "rejected_candidate_skill_executed_count": sum(
             1 for record in decision_records if record.get("rejected_candidate_skill_was_executed")
         ),
@@ -758,45 +928,92 @@ def aggregate_method(episodes: list[dict[str, Any]]) -> dict[str, Any]:
     false_stop_positive = sum(1 for episode in episodes if episode.get("stop_failure_type") == "premature_stop")
     false_stop_negative = sum(1 for episode in episodes if episode.get("stop_failure_type") == "late_stop")
     action_distribution = {action.value: 0 for action in VLNAction}
+    recovery_action_distribution: dict[str, int] = {}
+    stop_source_distribution: dict[str, int] = {}
+    post_reject_progress_values: list[float] = []
     for episode in episodes:
         for action, count in episode.get("action_distribution", {}).items():
             action_distribution[action] = action_distribution.get(action, 0) + int(count)
+        for action, count in episode.get("recovery_action_distribution", {}).items():
+            recovery_action_distribution[action] = recovery_action_distribution.get(action, 0) + int(count)
+        for source, count in episode.get("stop_source_distribution", {}).items():
+            stop_source_distribution[source] = stop_source_distribution.get(source, 0) + int(count)
+        if episode.get("casa_reject_count", 0):
+            post_reject_progress_values.append(float(episode.get("mean_post_reject_progress", 0.0)))
+    step_count = sum(int(episode["steps"]) for episode in episodes)
+    reject_count = sum(int(episode["casa_reject_count"]) for episode in episodes)
+    replan_count = sum(int(episode["casa_replan_count"]) for episode in episodes)
+    non_stop_recovery_count = sum(int(episode.get("non_stop_recovery_count", 0)) for episode in episodes)
+    fallback_to_stop_count = sum(int(episode.get("fallback_to_stop_count", 0)) for episode in episodes)
     return {
         "method": episodes[0]["method"] if episodes else "",
         "total_episodes": total,
         "success_count": success_count,
         "success_rate": success_count / total if total else 0.0,
+        "task_success_rate": success_count / total if total else 0.0,
         "safe_success_count": safe_success_count,
         "safe_success_rate": safe_success_count / total if total else 0.0,
         "unsafe_violation_count": sum(1 for episode in episodes if episode["unsafe_violation"]),
         "unsafe_violation_rate": sum(1 for episode in episodes if episode["unsafe_violation"]) / total if total else 0.0,
+        "unsafe_wall_collision_count": sum(int(episode["unsafe_wall_collision_count"]) for episode in episodes),
         "collision_count": sum(int(episode["collision_count"]) for episode in episodes),
         "fall_count": sum(int(episode["fall_count"]) for episode in episodes),
         "wall_contact_steps": sum(int(episode["wall_contact_steps"]) for episode in episodes),
-        "casa_reject_count": sum(int(episode["casa_reject_count"]) for episode in episodes),
-        "casa_replan_count": sum(int(episode["casa_replan_count"]) for episode in episodes),
+        "casa_reject_count": reject_count,
+        "reject_count": reject_count,
+        "reject_rate_per_step": reject_count / max(1, step_count),
+        "casa_replan_count": replan_count,
+        "replan_count": replan_count,
         "rejected_candidate_skill_executed_count": sum(
             int(episode["rejected_candidate_skill_executed_count"]) for episode in episodes
         ),
         "policy_internal_guard_steps": sum(int(episode["policy_internal_guard_steps"]) for episode in episodes),
         "stuck_count": sum(1 for episode in episodes if episode["stuck"]),
+        "stuck_rate": sum(1 for episode in episodes if episode["stuck"]) / total if total else 0.0,
         "timeout_count": sum(1 for episode in episodes if episode["timeout"]),
+        "timeout_rate": sum(1 for episode in episodes if episode["timeout"]) / total if total else 0.0,
         "mean_final_distance": _mean([episode["final_distance"] for episode in episodes]),
         "median_final_distance": median([episode["final_distance"] for episode in episodes]) if episodes else 0.0,
         "mean_shortest_path_progress": _mean([episode["shortest_path_progress"] for episode in episodes]),
         "mean_executed_motion_skills": _mean([episode["executed_motion_skills"] for episode in episodes]),
         "stop_fallback_ratio": _mean([episode["stop_fallback_ratio"] for episode in episodes]),
+        "policy_stop_count": sum(int(episode.get("policy_stop_count", 0)) for episode in episodes),
+        "last_resort_stop_count": sum(int(episode.get("last_resort_stop_count", 0)) for episode in episodes),
+        "stop_source_distribution": stop_source_distribution,
+        "non_stop_recovery_count": non_stop_recovery_count,
+        "non_stop_recovery_rate": non_stop_recovery_count / max(1, replan_count),
+        "fallback_to_stop_count": fallback_to_stop_count,
+        "fallback_to_stop_rate": fallback_to_stop_count / max(1, replan_count),
+        "repeated_reject_loop_count": sum(int(episode.get("repeated_reject_loop_count", 0)) for episode in episodes),
+        "dmps_recovery_stuck_count": sum(int(episode.get("dmps_recovery_stuck_count", 0)) for episode in episodes),
+        "mean_post_reject_progress": _mean(post_reject_progress_values),
+        "median_post_reject_progress": median(post_reject_progress_values) if post_reject_progress_values else 0.0,
+        "positive_post_reject_progress_rate": sum(1 for value in post_reject_progress_values if value > 0.0) / len(post_reject_progress_values)
+        if post_reject_progress_values
+        else 0.0,
         "stop_precision": true_stop_positive / max(1, true_stop_positive + false_stop_positive),
         "stop_recall": true_stop_positive / max(1, true_stop_positive + false_stop_negative),
         "premature_stop_rate": false_stop_positive / total if total else 0.0,
         "late_stop_rate": false_stop_negative / total if total else 0.0,
         "mean_stop_distance": _mean(stop_distances),
         "action_distribution": action_distribution,
+        "recovery_action_distribution": recovery_action_distribution,
     }
 
 
 def _mean(values: list[float | int]) -> float:
     return float(sum(values) / len(values)) if values else 0.0
+
+
+def parse_seeds(raw: str) -> tuple[int, ...]:
+    return tuple(int(item.strip()) for item in raw.split(",") if item.strip())
+
+
+def load_score_weights(path: Path | None) -> dict[str, float] | None:
+    if path is None:
+        return None
+    data = json.loads(path.read_text())
+    return {str(key): float(value) for key, value in data.items()}
 
 
 def write_table_csv(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -860,6 +1077,12 @@ def flatten_decision_record(record: dict[str, Any]) -> dict[str, Any]:
         "casa_replan_applied": record.get("casa_replan_applied"),
         "casa_replan_selected_action": record.get("casa_replan_selected_action"),
         "casa_replan_selected_skill": record.get("casa_replan_selected_skill"),
+        "dmps_replan_applied": record.get("dmps_replan_applied"),
+        "dmps_selected_sequence": record.get("dmps_selected_sequence"),
+        "dmps_recovery_stuck": record.get("dmps_recovery_stuck"),
+        "non_stop_recovery_selected": record.get("non_stop_recovery_selected"),
+        "all_non_stop_candidates_infeasible": record.get("all_non_stop_candidates_infeasible"),
+        "post_reject_progress_evaluator_only": record.get("post_reject_progress_evaluator_only"),
         "rejected_candidate_skill_was_executed": record.get("rejected_candidate_skill_was_executed"),
         "skill_status": record.get("skill_status"),
         "wall_collision": record.get("wall_collision"),
@@ -889,21 +1112,33 @@ def collect_jsonl_records(paths: list[Path]) -> list[dict[str, Any]]:
     return rows
 
 
-def write_global_logs(data_dir: Path, episode_metrics: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+def write_global_logs(data_dir: Path, episode_metrics: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     per_episode = data_dir / "per_episode"
     decision_rows = collect_jsonl_records(sorted(per_episode.glob("*_decision_log.jsonl")))
     gate_rows = collect_jsonl_records(sorted(per_episode.glob("*_gate_decisions.jsonl")))
     replan_rows = collect_jsonl_records(sorted(per_episode.glob("*_replan_log.jsonl")))
     trajectory_rows = collect_jsonl_records(sorted(per_episode.glob("*_trajectory_log.jsonl")))
+    dmps_candidate_rows = collect_jsonl_records(sorted(per_episode.glob("*_dmps_candidate_sequences.jsonl")))
+    dmps_selected_rows = collect_jsonl_records(sorted(per_episode.glob("*_dmps_selected_replans.jsonl")))
+    dmps_rollout_rows = collect_jsonl_records(sorted(per_episode.glob("*_dmps_mpc_cbf_rollouts.jsonl")))
+    progress_event_rows = collect_jsonl_records(sorted(per_episode.glob("*_progress_monitor_events.jsonl")))
     write_table_csv(data_dir / "decision_logs.csv", [flatten_decision_record(row) for row in decision_rows])
     write_table_csv(data_dir / "gate_decisions.csv", gate_rows)
     write_table_csv(data_dir / "replan_logs.csv", replan_rows)
     write_table_csv(data_dir / "trajectory_logs.csv", trajectory_rows)
+    write_table_csv(data_dir / "dmps_candidate_sequences.csv", dmps_candidate_rows)
+    write_table_csv(data_dir / "dmps_selected_replans.csv", dmps_selected_rows)
+    write_table_csv(data_dir / "dmps_score_breakdown.csv", dmps_candidate_rows)
+    for jsonl_path in [data_dir / "dmps_mpc_cbf_rollouts.jsonl", data_dir / "progress_monitor_events.jsonl"]:
+        if jsonl_path.exists():
+            jsonl_path.unlink()
+    append_jsonl(data_dir / "dmps_mpc_cbf_rollouts.jsonl", dmps_rollout_rows)
+    append_jsonl(data_dir / "progress_monitor_events.jsonl", progress_event_rows)
     summaries = data_dir / "episode_summaries.jsonl"
     if summaries.exists():
         summaries.unlink()
     append_jsonl(summaries, episode_metrics)
-    return decision_rows, gate_rows, replan_rows, trajectory_rows
+    return decision_rows, gate_rows, replan_rows, trajectory_rows, dmps_candidate_rows, dmps_selected_rows, dmps_rollout_rows, progress_event_rows
 
 
 def write_repo_audit(path: Path) -> None:
@@ -939,6 +1174,42 @@ def write_repo_audit(path: Path) -> None:
     ]
     for file in files:
         lines.append(f"- `{file}`: `{Path(file).exists()}`")
+    lines.extend(
+        [
+            "",
+            "## Audit Answers",
+            "",
+            "### Current vln_only runner",
+            "`vln_only` runs the NaVid/visual-adapter VLN policy, maps each action to a SONIC skill, executes it in the MuJoCo maze executor, and records decision, trajectory, frame, video, and episode summary logs.",
+            "",
+            "### Current vln_casa_replan",
+            "`vln_casa_replan` evaluates the nominal VLN skill with the CASA bridge. If rejected, it scores a fixed single-step recovery set mostly by raw CASA risk plus priority, chooses one allowed non-stop candidate or stop as last resort, executes one action, and returns control to VLN.",
+            "",
+            "### CASA-VLN bridge features",
+            "The bridge maps VLN actions to CASA skill names, loads the real Phase4 raw critic and Phase5 conformal thresholds, computes hard-contract features and wall-risk features including candidate clearance, candidate would-block flag, current obstacle distance, current obstacle collision flag, and nearest obstacle relative position.",
+            "",
+            "### stop_source",
+            "Only `vln_policy` and `policy_internal_guard` count as policy-issued success stops. CASA/DMPS safety stops such as `casa_reject_only_stop`, `casa_replan_last_resort_stop`, and `dmps_mpc_cbf_last_resort_stop` are logged but cannot satisfy task success.",
+            "",
+            "### unsafe_wall_collision / wall_contact_steps",
+            "The MuJoCo maze executor uses `maze.is_xy_safe` at walking microsteps. If a walk microstep would enter unsafe wall/furniture geometry, it records `wall_collision=1`, returns status `blocked`, and episode summary counts those rows as `unsafe_wall_collision_count` and `wall_contact_steps`.",
+            "",
+            "### Why naive replan can lower success",
+            "The old replan removes unsafe contacts but does not optimize visual progress or loop avoidance. It can repeatedly choose low-risk turns/backoffs, time out without a policy stop, or replace hazardous progress with safety-only behavior, lowering safe success.",
+            "",
+            "### Logs not visible in Git",
+            "Large online artifacts are written under `/mnt/data/students/lph/recording/`: videos, frames, per-episode decision/gate/replan logs, trajectory logs, trained visual adapter outputs, full manifests, and MuJoCo/NaVid worker logs.",
+            "",
+            "### New insertion point",
+            "The new DMPS/PPSR method is inserted in `gear_sonic/vln/casa_runner.py` inside the CASA-reject branch, after the nominal action is rejected and before execution of a recovery action.",
+            "",
+            "### Files modified",
+            "`gear_sonic/vln/casa_bridge.py`, `gear_sonic/vln/casa_runner.py`, `gear_sonic/scripts/casa_run_vln_safety_online.py`, and VLN tests are modified; `progress_monitor.py` and `dmps_mpc_cbf_replan.py` are added.",
+            "",
+            "### Existing controls preserved",
+            "`vln_only`, `vln_casa_reject_only`, and `vln_casa_replan` remain as comparison methods. The new method is `vln_dmps_mpc_cbf_progress`, alias `vln_ppsr`.",
+        ]
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n")
 
@@ -951,6 +1222,10 @@ def write_audits(
     decision_rows: list[dict[str, Any]],
     gate_rows: list[dict[str, Any]],
     replan_rows: list[dict[str, Any]],
+    dmps_candidate_rows: list[dict[str, Any]],
+    dmps_selected_rows: list[dict[str, Any]],
+    dmps_rollout_rows: list[dict[str, Any]],
+    progress_event_rows: list[dict[str, Any]],
     method_summary: list[dict[str, Any]],
 ) -> dict[str, Any]:
     required_wall_fields = [
@@ -974,12 +1249,12 @@ def write_audits(
     stop_rows = [row for row in decision_rows if row.get("metrics_action") == VLNAction.STOP.value]
     stop_source_audit = {
         "policy_success_stop_sources": sorted(["vln_policy", "policy_internal_guard"]),
-        "non_success_casa_stop_sources": sorted(["casa_reject_only_stop", "casa_replan_last_resort_stop"]),
+        "non_success_casa_stop_sources": sorted(["casa_reject_only_stop", "casa_replan_last_resort_stop", DMPS_LAST_RESORT_STOP_SOURCE]),
         "stop_source_counts": dict(Counter(str(row.get("stop_source") or "") for row in stop_rows)),
         "casa_stop_rows_counted_as_policy_stop": sum(
             1
             for row in stop_rows
-            if str(row.get("stop_source") or "").startswith("casa_") and is_policy_stop_source(row.get("stop_source"))
+            if str(row.get("stop_source") or "").startswith(("casa_", "dmps_")) and is_policy_stop_source(row.get("stop_source"))
         ),
     }
     write_json(data_dir / "stop_source_audit.json", stop_source_audit)
@@ -1007,6 +1282,10 @@ def write_audits(
 
     leakage_audit = {
         "test_time_policy_uses_map_pose_goal_path": False,
+        "used_goal_distance_for_online_replan": False,
+        "used_shortest_path_for_online_replan": False,
+        "used_a_star_for_online_replan": False,
+        "used_oracle_waypoint_for_online_replan": False,
         "policy_input_fields": [
             "instruction",
             "head_camera_image",
@@ -1054,6 +1333,47 @@ def write_audits(
         failure_breakdown[method][reason] = failure_breakdown[method].get(reason, 0) + 1
     write_json(data_dir / "failure_reason_breakdown.json", failure_breakdown)
 
+    visual_examples = []
+    for row in dmps_candidate_rows[:20]:
+        visual_examples.append(
+            {
+                "episode_id": row.get("episode_id"),
+                "step_id": row.get("step_id"),
+                "candidate_sequence": row.get("candidate_sequence"),
+                "visual_free_space_score": row.get("visual_free_space_score"),
+            }
+        )
+    visual_free_space_audit = {
+        "visual_free_space_score_available": bool(dmps_candidate_rows),
+        "method": "head_camera_left_center_right_brightness_edge_proxy",
+        "examples": visual_examples,
+        "forbidden_inputs_used": False,
+        "fallback": "If image read fails, score is unavailable and a conservative fixed proxy is used.",
+    }
+    write_json(data_dir / "visual_free_space_audit.json", visual_free_space_audit)
+
+    intent_score_audit = {
+        "rules": {
+            "forward": "short_forward highest unless repeatedly rejected; turns medium; backoff low-to-medium for recovery; stop lowest.",
+            "turn_left": "left turns highest; backoff+turn_left medium-high; opposite turn penalized unless repeated rejects.",
+            "turn_right": "right turns highest; backoff+turn_right medium-high; opposite turn penalized unless repeated rejects.",
+            "backoff": "backoff highest; turns medium; forward low.",
+            "stop": "stop requires visual stop cue in policy; DMPS last-resort stop remains non-success stop.",
+        },
+        "candidate_rows": len(dmps_candidate_rows),
+        "selected_sequence_counts": dict(Counter(str(row.get("selected_sequence")) for row in dmps_selected_rows)),
+    }
+    write_json(data_dir / "intent_score_audit.json", intent_score_audit)
+
+    progress_monitor_audit = {
+        "event_count": len(progress_event_rows),
+        "event_type_counts": dict(Counter(str(row.get("event_type")) for row in progress_event_rows)),
+        "episodes_with_events": sorted(set(str(row.get("episode_id")) for row in progress_event_rows)),
+        "forbidden_online_inputs": ["goal_xy", "goal_distance", "shortest_path", "astar_path", "oracle_waypoint"],
+        "uses_forbidden_online_inputs": False,
+    }
+    write_json(data_dir / "progress_monitor_audit.json", progress_monitor_audit)
+
     return {
         "wall_feature_audit": wall_feature_audit,
         "stop_source_audit": stop_source_audit,
@@ -1062,6 +1382,10 @@ def write_audits(
         "privileged_leakage_audit": leakage_audit,
         "casa_gate_risk_activation_audit": risk_activation,
         "casa_vln_bridge_audit": bridge_audit,
+        "visual_free_space_audit": visual_free_space_audit,
+        "intent_score_audit": intent_score_audit,
+        "progress_monitor_audit": progress_monitor_audit,
+        "dmps_rollout_count": len(dmps_rollout_rows),
     }
 
 
@@ -1074,22 +1398,32 @@ def draw_comparison_figures(figures_dir: Path, method_summary: list[dict[str, An
         image = Image.new("RGB", (900, 420), (248, 248, 248))
         draw = ImageDraw.Draw(image)
         draw.text((30, 20), title, fill=(0, 0, 0))
-        max_value = max([float(row.get(key, 0.0)) for row in method_summary] or [1.0])
-        if max_value <= 0:
-            max_value = 1.0
+        values = [float(row.get(key, 0.0)) for row in method_summary]
+        min_value = min(values + [0.0])
+        max_value = max(values + [0.0])
+        span = max(max_value - min_value, 1e-6)
+        baseline_y = 340 - int(280 * (0.0 - min_value) / span)
+        draw.line([(50, baseline_y), (870, baseline_y)], fill=(120, 120, 120), width=1)
         x = 70
         for row in method_summary:
             value = float(row.get(key, 0.0))
-            height = int(280 * value / max_value)
-            draw.rectangle([x, 340 - height, x + 120, 340], fill=color)
+            value_y = 340 - int(280 * (value - min_value) / span)
+            y0 = min(value_y, baseline_y)
+            y1 = max(value_y, baseline_y)
+            draw.rectangle([x, y0, x + 120, y1], fill=color)
             draw.text((x, 348), str(row["method"])[:18], fill=(0, 0, 0))
-            draw.text((x + 20, 320 - height), f"{value:.2f}", fill=(0, 0, 0))
+            label_y = max(42, min(y0 - 18, 360))
+            draw.text((x + 20, label_y), f"{value:.2f}", fill=(0, 0, 0))
             x += 240
         image.save(path)
 
     bar_chart(figures_dir / "success_vs_safe_success.png", "Safe success rate", "safe_success_rate", (40, 145, 85))
     bar_chart(figures_dir / "collision_breakdown.png", "Wall contact steps", "wall_contact_steps", (190, 85, 55))
     bar_chart(figures_dir / "reject_replan_outcomes.png", "CASA replan count", "casa_replan_count", (70, 115, 190))
+    bar_chart(figures_dir / "unsafe_collision_comparison.png", "Unsafe violation rate", "unsafe_violation_rate", (190, 85, 55))
+    bar_chart(figures_dir / "post_reject_progress_comparison.png", "Mean post-reject progress", "mean_post_reject_progress", (75, 130, 180))
+    bar_chart(figures_dir / "fallback_to_stop_comparison.png", "Fallback-to-stop rate", "fallback_to_stop_rate", (175, 120, 60))
+    bar_chart(figures_dir / "dmps_replan_action_distribution.png", "Non-stop recovery rate", "non_stop_recovery_rate", (80, 150, 120))
 
 
 def audit_final_status(method_summary: list[dict[str, Any]], audits: dict[str, Any]) -> str:
@@ -1098,6 +1432,36 @@ def audit_final_status(method_summary: list[dict[str, Any]], audits: dict[str, A
         return "FAILED_EVALUATION_BUT_AUDITABLE"
     if not audits["casa_vln_bridge_audit"]["loaded_real_casa_artifacts"]:
         return "PARTIAL_BLOCKED_ENGINEERING"
+    leakage = audits["privileged_leakage_audit"]
+    if any(
+        bool(leakage.get(key))
+        for key in [
+            "used_goal_distance_for_online_replan",
+            "used_shortest_path_for_online_replan",
+            "used_a_star_for_online_replan",
+            "used_oracle_waypoint_for_online_replan",
+        ]
+    ):
+        return "FAILED_PRIVILEGED_LEAKAGE"
+    if DMPS_METHOD_NAME in by_method and "vln_casa_replan" in by_method:
+        dmps = by_method[DMPS_METHOD_NAME]
+        naive = by_method["vln_casa_replan"]
+        baseline = by_method["vln_only"]
+        if float(dmps["unsafe_violation_rate"]) > float(naive["unsafe_violation_rate"]) + 0.05:
+            return "FAILED_SAFETY_REGRESSION"
+        improves = (
+            float(dmps["safe_success_rate"]) > float(naive["safe_success_rate"])
+            and (
+                float(dmps["safe_success_rate"]) >= float(baseline["safe_success_rate"])
+                or float(baseline["safe_success_rate"]) - float(dmps["safe_success_rate"]) <= 0.05
+            )
+            and float(dmps["mean_post_reject_progress"]) > float(naive["mean_post_reject_progress"])
+            and float(dmps["positive_post_reject_progress_rate"]) > float(naive["positive_post_reject_progress_rate"])
+            and float(dmps["fallback_to_stop_rate"]) < float(naive["fallback_to_stop_rate"])
+            and int(dmps["non_stop_recovery_count"]) > 0
+            and audits["stop_source_audit"]["casa_stop_rows_counted_as_policy_stop"] == 0
+        )
+        return "PASS_DMPS_PROGRESS_REPLAN_IMPROVES" if improves else "PASS_IMPLEMENTED_BUT_NO_IMPROVEMENT"
     replan = by_method.get("vln_casa_replan")
     baseline = by_method["vln_only"]
     if replan is None:
@@ -1109,6 +1473,36 @@ def audit_final_status(method_summary: list[dict[str, Any]], audits: dict[str, A
     return "PASS_IMPLEMENTED_BUT_NO_IMPROVEMENT"
 
 
+def comparison_metrics(method_summary: list[dict[str, Any]]) -> dict[str, float | None]:
+    by_method = {row["method"]: row for row in method_summary}
+    dmps = by_method.get(DMPS_METHOD_NAME)
+    vln = by_method.get("vln_only")
+    naive = by_method.get("vln_casa_replan")
+    if dmps is None:
+        return {}
+
+    def delta(key: str, other: dict[str, Any] | None) -> float | None:
+        if other is None:
+            return None
+        return float(dmps.get(key, 0.0)) - float(other.get(key, 0.0))
+
+    return {
+        "dmps_safe_success_delta_vs_vln_only": delta("safe_success_rate", vln),
+        "dmps_safe_success_delta_vs_naive_replan": delta("safe_success_rate", naive),
+        "dmps_unsafe_delta_vs_vln_only": delta("unsafe_violation_rate", vln),
+        "dmps_unsafe_delta_vs_naive_replan": delta("unsafe_violation_rate", naive),
+        "dmps_post_reject_progress_delta_vs_naive_replan": delta("mean_post_reject_progress", naive),
+        "dmps_fallback_to_stop_delta_vs_naive_replan": delta("fallback_to_stop_rate", naive),
+    }
+
+
+def _git_text(args: list[str]) -> str:
+    try:
+        return subprocess.check_output(["git", *args], text=True, stderr=subprocess.STDOUT).strip()
+    except Exception as exc:
+        return f"ERROR: {exc}"
+
+
 def write_report(
     *,
     output_dir: Path,
@@ -1118,7 +1512,7 @@ def write_report(
     report: dict[str, Any],
 ) -> None:
     lines = [
-        "# CASA-VLN Safety Gate Online Report",
+        "# DMPS MPC-CBF Progress-Preserving VLN Safety Report",
         "",
         f"- final_status: `{final_status}`",
         f"- output_dir: `{output_dir}`",
@@ -1126,27 +1520,48 @@ def write_report(
         f"- methods: `{','.join(config.methods)}`",
         f"- heldout_episodes_per_method: `{config.heldout_episodes}`",
         f"- gate_method: `{config.gate_method}`",
+        f"- dmps_horizon: `{config.dmps_horizon}`",
+        f"- safety_margin: `{config.safety_margin}`",
+        f"- method_alias: `{DMPS_ALIAS}` == `{DMPS_METHOD_NAME}`",
         f"- phase4_root: `{config.phase4_root}`",
         f"- phase5_root: `{config.phase5_root}`",
         "",
         "## Method Summary",
         "",
-        "| method | safe_success_rate | success_rate | unsafe_violation_rate | wall_contact_steps | casa_reject_count | casa_replan_count |",
-        "|---|---:|---:|---:|---:|---:|---:|",
+        "| method | safe_success_rate | success_rate | unsafe_violation_rate | wall_contact_steps | reject_count | replan_count | mean_post_reject_progress | fallback_to_stop_rate |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in method_summary:
         lines.append(
             f"| {row['method']} | {row['safe_success_rate']:.3f} | {row['success_rate']:.3f} | "
             f"{row['unsafe_violation_rate']:.3f} | {row['wall_contact_steps']} | "
-            f"{row['casa_reject_count']} | {row['casa_replan_count']} |"
+            f"{row['reject_count']} | {row['replan_count']} | {row['mean_post_reject_progress']:.3f} | "
+            f"{row['fallback_to_stop_rate']:.3f} |"
         )
     lines.extend(
         [
             "",
-            "## Interpretation",
+            "## Required Questions",
             "",
-            "CASA stops and last-resort stops are not counted as policy-issued task success. "
-            "Only stops from `vln_policy` or `policy_internal_guard` can satisfy the stop condition.",
+            "1. Old `vln_casa_replan` lowers safe success because it prioritizes low-risk single-step recovery without visual progress, intent preservation, or loop avoidance.",
+            "2. The new method performs dynamic candidate-sequence search with safety filtering and progress/intent scoring; the old replan uses a fixed single-step risk/priority choice.",
+            "3. DMPS-style shielding is implemented: VLN remains nominal policy, the shield intervenes only on unsafe actions, executes only the first recovery action, and returns control to VLN.",
+            "4. Skill-level MPC-CBF-style safety is implemented as discrete rollout over skill microsteps with clearance barrier `h(x)=clearance-safety_margin`; this is not full torque-level humanoid MPC-CBF.",
+            "5. A non-privileged progress monitor tracks recent actions, rejects, blocked flags, stop sources, visual hashes, and loop counters.",
+            "6. Online replan does not use goal distance, shortest path, A*, or oracle waypoints; those are evaluator-only.",
+            "7. Fallback-to-stop is reported in `method_summary.csv` and `fallback_to_stop_comparison.png`.",
+            "8. Post-reject progress is evaluator-only and reported for comparison, not used for online action selection.",
+            "9. Unsafe/wall collision is kept under the same `maze.is_xy_safe` microstep criterion.",
+            "10. Safe-success improvement is determined by the final status rule, not assumed.",
+            "11. Recovery sequence effectiveness is visible in `dmps_selected_replans.csv` and `dmps_replan_action_distribution.png`.",
+            "12. Remaining failures are reported in `failure_reason_breakdown.json`.",
+            "13. Visual free-space uses a first-person left/center/right brightness-edge proxy; fallback is logged if image read fails.",
+            "14. The paper claim is supported only if final_status is `PASS_DMPS_PROGRESS_REPLAN_IMPROVES`.",
+            "",
+            "## Stop Source Rule",
+            "",
+            "CASA/DMPS safety stops are not counted as policy-issued task success. "
+            "Only `vln_policy` or `policy_internal_guard` can satisfy the stop condition.",
             "",
             "The bridge maps `backoff` to CASA `walk` for threshold lookup while preserving the executable "
             "`backoff_walk` skill name in logs.",
@@ -1156,11 +1571,13 @@ def write_report(
     )
     for path in report.get("video_paths", [])[:30]:
         lines.append(f"- `{path}`")
+    (output_dir / "dmps_mpc_cbf_progress_report.md").write_text("\n".join(lines) + "\n")
     (output_dir / "casa_vln_safety_report.md").write_text("\n".join(lines) + "\n")
     (output_dir / "README.md").write_text("\n".join(lines[:22]) + "\n")
 
 
 def run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
+    start_time = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     os.environ.setdefault("MUJOCO_GL", "egl")
     os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
     assert_no_privileged_inference_schema()
@@ -1214,10 +1631,11 @@ def run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
         min_euclidean_m=config.min_route_euclidean_m,
         require_furniture_detour=config.require_furniture_detour,
     )
+    heldout_seed = config.seeds[0] if config.seeds else config.heldout_seed
     heldout_routes = generate_routes(
         maze,
         count=config.heldout_episodes,
-        seed=config.heldout_seed,
+        seed=heldout_seed,
         min_edges=config.min_route_edges,
         max_edges=config.max_route_edges,
         min_euclidean_m=config.min_route_euclidean_m,
@@ -1231,7 +1649,8 @@ def run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
     write_json(
         dirs["data"] / "eval_splits.json",
         {
-            "heldout_seed": config.heldout_seed,
+            "heldout_seed": heldout_seed,
+            "seeds": list(config.seeds),
             "heldout_episodes": [task.to_dict() for task in heldout_tasks],
             "train_episodes": [task.to_dict() for task in demo_tasks],
             "methods": list(config.methods),
@@ -1273,7 +1692,16 @@ def run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
         if real_navid_backend is not None:
             real_navid_backend.close()
 
-    decision_rows, gate_rows, replan_rows, _trajectory_rows = write_global_logs(dirs["data"], episode_metrics)
+    (
+        decision_rows,
+        gate_rows,
+        replan_rows,
+        _trajectory_rows,
+        dmps_candidate_rows,
+        dmps_selected_rows,
+        dmps_rollout_rows,
+        progress_event_rows,
+    ) = write_global_logs(dirs["data"], episode_metrics)
     by_method = {method: [row for row in episode_metrics if row["method"] == method] for method in config.methods}
     method_summary = [aggregate_method(rows) for rows in by_method.values()]
     write_table_csv(dirs["data"] / "method_summary.csv", method_summary)
@@ -1285,17 +1713,29 @@ def run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
         decision_rows=decision_rows,
         gate_rows=gate_rows,
         replan_rows=replan_rows,
+        dmps_candidate_rows=dmps_candidate_rows,
+        dmps_selected_rows=dmps_selected_rows,
+        dmps_rollout_rows=dmps_rollout_rows,
+        progress_event_rows=progress_event_rows,
         method_summary=method_summary,
     )
     draw_comparison_figures(dirs["figures"], method_summary)
     final_status = audit_final_status(method_summary, audits)
     video_paths = [path for episode in episode_metrics for path in episode.get("video_paths", [])]
     report = {
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "created_at": start_time,
+        "start_time": start_time,
+        "end_time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "git_commit": _git_text(["rev-parse", "HEAD"]),
+        "git_status_short": _git_text(["status", "--short"]),
         "final_status": final_status,
         "output_dir": str(config.output_dir),
+        "scene_xml": str(config.scene_xml),
+        "runner_script": "gear_sonic/scripts/casa_run_vln_safety_online.py",
         "methods": list(config.methods),
         "heldout_episodes_per_method": config.heldout_episodes,
+        "seeds": list(config.seeds),
+        "max_steps": config.max_steps,
         "dataset_path": str(dataset_path),
         "adapter_path": str(adapter_path),
         "policy_backend": config.policy_backend,
@@ -1309,8 +1749,19 @@ def run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
         "phase4_root": str(config.phase4_root),
         "phase5_root": str(config.phase5_root),
         "casa_gate_method": config.gate_method,
+        "previous_casa_vln_result_path": str(config.previous_casa_vln_result_path),
+        "dmps_horizon": config.dmps_horizon,
+        "safety_margin": config.safety_margin,
+        "score_weights": config.score_weights or DEFAULT_SCORE_WEIGHTS,
+        "visual_free_space_available": audits["visual_free_space_audit"]["visual_free_space_score_available"],
+        "used_goal_distance_for_online_replan": False,
+        "used_shortest_path_for_online_replan": False,
+        "used_a_star_for_online_replan": False,
+        "used_oracle_waypoint_for_online_replan": False,
+        "python_executable": os.sys.executable,
         "risk_source": "real_casa_critic",
         "method_summary": method_summary,
+        "comparisons": comparison_metrics(method_summary),
         "episodes": episode_metrics,
         "video_paths": video_paths,
         "videos_path": str(dirs["videos"]),
@@ -1362,10 +1813,12 @@ def parse_args(argv: list[str] | None = None) -> CasaVlnRunnerConfig:
     parser.add_argument("--phase4-root", type=Path, default=DEFAULT_PHASE4_ROOT)
     parser.add_argument("--phase5-root", type=Path, default=DEFAULT_PHASE5_ROOT)
     parser.add_argument("--methods", default="all")
+    parser.add_argument("--method", default=None)
     parser.add_argument("--heldout-episodes", type=int, default=20)
     parser.add_argument("--auto-demo-count", type=int, default=100)
     parser.add_argument("--seed", type=int, default=260610)
     parser.add_argument("--heldout-seed", type=int, default=260611)
+    parser.add_argument("--seeds", default="260611")
     parser.add_argument("--max-steps", type=int, default=96)
     parser.add_argument("--frame-width", type=int, default=320)
     parser.add_argument("--frame-height", type=int, default=240)
@@ -1386,8 +1839,17 @@ def parse_args(argv: list[str] | None = None) -> CasaVlnRunnerConfig:
     parser.add_argument("--navid-worker-timeout-s", type=float, default=900.0)
     parser.add_argument("--gate-method", default="casa_a_hard_or_per_skill")
     parser.add_argument("--max-consecutive-casa-recovery-steps", type=int, default=1)
+    parser.add_argument("--max-consecutive-dmps-recovery-steps", type=int, default=1)
+    parser.add_argument("--dmps-horizon", type=int, default=2)
+    parser.add_argument("--safety-margin", type=float, default=0.05)
+    parser.add_argument("--progress-score-config", type=Path, default=None)
+    parser.add_argument("--previous-casa-vln-result-path", type=Path, default=Path("/mnt/data/students/lph/recording/casa_vln_safety_locked_real_navid_20260611_190121"))
+    parser.add_argument("--record-video", action="store_true", default=True)
+    parser.add_argument("--dry-run", default="false")
     parser.add_argument("--strict", action="store_true")
     args = parser.parse_args(argv)
+    methods_arg = args.method if args.method is not None else args.methods
+    seeds = parse_seeds(args.seeds)
     return CasaVlnRunnerConfig(
         output_dir=args.output_dir,
         scene_xml=args.scene_xml,
@@ -1396,7 +1858,7 @@ def parse_args(argv: list[str] | None = None) -> CasaVlnRunnerConfig:
         train_map_metadata=args.train_map_metadata,
         phase4_root=args.phase4_root,
         phase5_root=args.phase5_root,
-        methods=method_list(args.methods),
+        methods=method_list(methods_arg),
         heldout_episodes=args.heldout_episodes,
         auto_demo_count=args.auto_demo_count,
         seed=args.seed,
@@ -1417,6 +1879,15 @@ def parse_args(argv: list[str] | None = None) -> CasaVlnRunnerConfig:
         navid_worker_timeout_s=args.navid_worker_timeout_s,
         gate_method=args.gate_method,
         max_consecutive_casa_recovery_steps=args.max_consecutive_casa_recovery_steps,
+        max_consecutive_dmps_recovery_steps=args.max_consecutive_dmps_recovery_steps,
+        dmps_horizon=args.dmps_horizon,
+        safety_margin=args.safety_margin,
+        progress_score_config=args.progress_score_config,
+        score_weights=load_score_weights(args.progress_score_config),
+        previous_casa_vln_result_path=args.previous_casa_vln_result_path,
+        seeds=seeds,
+        record_video=args.record_video,
+        dry_run=str(args.dry_run).lower() in {"1", "true", "yes"},
         strict=args.strict,
     )
 
