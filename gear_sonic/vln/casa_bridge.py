@@ -33,6 +33,8 @@ NON_SUCCESS_STOP_SOURCES = {
     "dmps_mpc_cbf_last_resort_stop",
     "ppsr_v2_last_resort_stop",
     "ppsr_v2_commitment_abort_stop",
+    "ppsr_v3_last_resort_stop",
+    "ppsr_v3_commitment_abort_stop",
     "runtime_wait",
     "episode_boundary_idle",
     "safety_reset_idle",

@@ -23,7 +23,10 @@ import time
 import xml.etree.ElementTree as ET
 from typing import Any
 
-import cv2
+try:
+    import cv2
+except ModuleNotFoundError:  # pragma: no cover - exercised only in minimal test envs
+    cv2 = None
 
 from gear_sonic.casa.skills.base import PlannerCommand, Skill
 from gear_sonic.camera.composed_camera import ComposedCameraClientSensor
@@ -44,6 +47,12 @@ NAVID_REPO = Path("/mnt/data/students/lph/recording/vln_sonic_navid_auto_2026061
 NAVID_MODEL = Path("/mnt/data/students/lph/models/navid/Jzzhang_NaVid/navid-7b-full-224-video-fps-1-grid-2-r2r-rxr-training-split")
 NAVID_PYTHON = Path("/mnt/data/students/lph/models/navid/envs/navid-real/bin/python")
 NAVID_VISION_TOWER = Path("/mnt/data/students/lph/models/navid/model_zoo/eva_vit_g.pth")
+
+
+def _require_cv2():
+    if cv2 is None:
+        raise RuntimeError("OpenCV cv2 is required for real NaVid camera/video IO")
+    return cv2
 
 
 @dataclass(frozen=True)
@@ -275,6 +284,7 @@ def _wait_for_camera_frame(
     output_path: Path,
     timeout_s: float,
 ) -> tuple[str, dict[str, Any]]:
+    cv2_mod = _require_cv2()
     deadline = time.monotonic() + timeout_s
     last_seen: dict[str, Any] | None = None
     while time.monotonic() < deadline:
@@ -285,8 +295,8 @@ def _wait_for_camera_frame(
                 if image is None:
                     continue
                 output_path.parent.mkdir(parents=True, exist_ok=True)
-                corrected = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                cv2.imwrite(str(output_path), corrected)
+                corrected = cv2_mod.cvtColor(image, cv2_mod.COLOR_BGR2RGB)
+                cv2_mod.imwrite(str(output_path), corrected)
                 return name, {
                     "camera_name": name,
                     "timestamps": message.get("timestamps", {}),
@@ -367,6 +377,7 @@ class ContinuousCameraRecorder:
         raise TimeoutError(f"no continuous camera frame received within {timeout_s:.1f}s")
 
     def _run(self) -> None:
+        cv2_mod = _require_cv2()
         min_period = 1.0 / self.save_fps
         next_save_at = 0.0
         index = 0
@@ -381,8 +392,8 @@ class ContinuousCameraRecorder:
                     if image is None:
                         continue
                     frame_path = self.output_dir / f"frame_{index:06d}.jpg"
-                    corrected = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                    cv2.imwrite(str(frame_path), corrected)
+                    corrected = cv2_mod.cvtColor(image, cv2_mod.COLOR_BGR2RGB)
+                    cv2_mod.imwrite(str(frame_path), corrected)
                     metadata = {
                         "camera_name": name,
                         "timestamps": message.get("timestamps", {}),
@@ -468,10 +479,11 @@ def _distance_xy(row: dict[str, Any], *, target_x: float, target_y: float) -> fl
 def _red_fraction(image_path: str | Path | None) -> float | None:
     if image_path is None:
         return None
-    image = cv2.imread(str(image_path))
+    cv2_mod = _require_cv2()
+    image = cv2_mod.imread(str(image_path))
     if image is None:
         return None
-    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype("float32") / 255.0
+    rgb = cv2_mod.cvtColor(image, cv2_mod.COLOR_BGR2RGB).astype("float32") / 255.0
     red = rgb[:, :, 0]
     green = rgb[:, :, 1]
     blue = rgb[:, :, 2]
@@ -774,16 +786,17 @@ def _select_final_action(
 
 
 def _write_video(frame_paths: list[Path], output_path: Path, *, fps: float = 4) -> str | None:
-    images = [cv2.imread(str(path)) for path in frame_paths if path.exists()]
+    cv2_mod = _require_cv2()
+    images = [cv2_mod.imread(str(path)) for path in frame_paths if path.exists()]
     images = [image for image in images if image is not None]
     if not images:
         return None
     height, width = images[0].shape[:2]
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    writer = cv2_mod.VideoWriter(str(output_path), cv2_mod.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
     for image in images:
         if image.shape[:2] != (height, width):
-            image = cv2.resize(image, (width, height))
+            image = cv2_mod.resize(image, (width, height))
         writer.write(image)
     writer.release()
     return str(output_path)

@@ -1,0 +1,158 @@
+{
+  "base_head_at_artifact_time": "f3503454873fd7377a7780d6683ccbac8c6bcc26",
+  "branch": "vln-ppsr-v3-task-return-replan-20260618",
+  "commands": {
+    "dev_all": "CUDA_VISIBLE_DEVICES=GPU-8b1188b9-c3d8-a887-a7f9-073ccd6e33fb NVIDIA_VISIBLE_DEVICES=GPU-8b1188b9-c3d8-a887-a7f9-073ccd6e33fb MUJOCO_GL=egl PYOPENGL_PLATFORM=egl /mnt/data/students/lph/models/navid/envs/navid-real/bin/python gear_sonic/scripts/casa_run_vln_safety_online.py --output-dir /mnt/data/students/lph/recording/vln_ppsr_v3_task_return_replan_20260618_203208_dev_all_max52 --methods vln_only,vln_casa_replan,vln_dmps_mpc_cbf_progress,vln_ppsr_v2_escape_macro,vln_ppsr_v3_task_return_replan --heldout-episodes 10 --max-steps 52 --auto-demo-count 40 --visual-adapter-epochs 120 --policy-backend real_navid_visual_adapter --navid-python /mnt/data/students/lph/models/navid/envs/navid-real/bin/python --navid-cuda-visible-devices GPU-8b1188b9-c3d8-a887-a7f9-073ccd6e33fb --ppsr-v3-horizon 5 --ppsr-v3-max-execute-steps 2 --ppsr-v3-safety-margin 0.05",
+    "locked": "CUDA_VISIBLE_DEVICES=GPU-8b1188b9-c3d8-a887-a7f9-073ccd6e33fb NVIDIA_VISIBLE_DEVICES=GPU-8b1188b9-c3d8-a887-a7f9-073ccd6e33fb MUJOCO_GL=egl PYOPENGL_PLATFORM=egl /mnt/data/students/lph/models/navid/envs/navid-real/bin/python gear_sonic/scripts/casa_run_vln_safety_online.py --output-dir /mnt/data/students/lph/recording/vln_ppsr_v3_task_return_replan_20260618_211206 --methods vln_only,vln_casa_replan,vln_dmps_mpc_cbf_progress,vln_ppsr_v2_escape_macro,vln_ppsr_v3_task_return_replan --heldout-episodes 20 --max-steps 52 --auto-demo-count 40 --visual-adapter-epochs 120 --policy-backend real_navid_visual_adapter --navid-python /mnt/data/students/lph/models/navid/envs/navid-real/bin/python --navid-cuda-visible-devices GPU-8b1188b9-c3d8-a887-a7f9-073ccd6e33fb --ppsr-v3-horizon 5 --ppsr-v3-max-execute-steps 2 --ppsr-v3-safety-margin 0.05",
+    "tests": "python -m py_compile <touched files>; pytest -q gear_sonic/tests/vln; git diff --check"
+  },
+  "dev_eval_reference_dir": "/mnt/data/students/lph/recording/vln_ppsr_v3_task_return_replan_20260618_203208_dev_all_max52",
+  "dev_method_summary": [
+    {
+      "loop_rate": "0.0",
+      "method": "vln_only",
+      "next_vln_action_allowed_rate": "0.0",
+      "post_reject_progress": "0.0",
+      "recovery_stop_success_leakage_count": "0",
+      "reject_count": "0",
+      "reject_to_policy_ready_rate": "0.0",
+      "safe_success_rate": "0.4",
+      "safety_stop_success_leakage_count": "0",
+      "unsafe_violation_rate": "0.5"
+    },
+    {
+      "loop_rate": "0.0",
+      "method": "vln_casa_replan",
+      "next_vln_action_allowed_rate": "0.0",
+      "post_reject_progress": "-0.012770617328224303",
+      "recovery_stop_success_leakage_count": "0",
+      "reject_count": "185",
+      "reject_to_policy_ready_rate": "0.0",
+      "safe_success_rate": "0.2",
+      "safety_stop_success_leakage_count": "0",
+      "unsafe_violation_rate": "0.0"
+    },
+    {
+      "loop_rate": "1.0",
+      "method": "vln_dmps_mpc_cbf_progress",
+      "next_vln_action_allowed_rate": "0.0",
+      "post_reject_progress": "0.0",
+      "recovery_stop_success_leakage_count": "0",
+      "reject_count": "224",
+      "reject_to_policy_ready_rate": "0.0",
+      "safe_success_rate": "0.4",
+      "safety_stop_success_leakage_count": "0",
+      "unsafe_violation_rate": "0.0"
+    },
+    {
+      "loop_rate": "0.0",
+      "method": "vln_ppsr_v2_escape_macro",
+      "next_vln_action_allowed_rate": "0.0",
+      "post_reject_progress": "0.03247371646870303",
+      "recovery_stop_success_leakage_count": "0",
+      "reject_count": "75",
+      "reject_to_policy_ready_rate": "0.0",
+      "safe_success_rate": "0.3",
+      "safety_stop_success_leakage_count": "0",
+      "unsafe_violation_rate": "0.0"
+    },
+    {
+      "loop_rate": "0.0",
+      "method": "vln_ppsr_v3_task_return_replan",
+      "next_vln_action_allowed_rate": "1.0",
+      "post_reject_progress": "-0.022552480977852164",
+      "recovery_stop_success_leakage_count": "0",
+      "reject_count": "86",
+      "reject_to_policy_ready_rate": "1.0",
+      "safe_success_rate": "0.4",
+      "safety_stop_success_leakage_count": "0",
+      "unsafe_violation_rate": "0.0"
+    }
+  ],
+  "final_status": "DEV_IMPROVED_BUT_LOCKED_NO_IMPROVEMENT",
+  "gpu_uuid_used": "GPU-8b1188b9-c3d8-a887-a7f9-073ccd6e33fb",
+  "key_file_sha256": {
+    "/mnt/data/students/lph/recording/vln_ppsr_v3_task_return_replan_20260618_211206/data/method_summary.csv": "06614751e103e30289f32ef28db16ac66474ed5840d026b42b59b66c5f2a9145",
+    "/mnt/data/students/lph/recording/vln_ppsr_v3_task_return_replan_20260618_211206/data/v3_candidate_sequences.csv": "c38384480c619f63875cef527df3fa037698be92db11a80da8343bba7fb84a72",
+    "/mnt/data/students/lph/recording/vln_ppsr_v3_task_return_replan_20260618_211206/data/v3_failure_reason_breakdown.json": "5d44265c7f16304474c326647b4640709ef4c17eb1b3a4e087214c1b492bdb35",
+    "/mnt/data/students/lph/recording/vln_ppsr_v3_task_return_replan_20260618_211206/data/v3_language_progress_audit.csv": "c38384480c619f63875cef527df3fa037698be92db11a80da8343bba7fb84a72",
+    "/mnt/data/students/lph/recording/vln_ppsr_v3_task_return_replan_20260618_211206/data/v3_loop_avoidance_audit.json": "1037b97e644b13f3904302de26faf46f657fdf739d09ef677da24bdf1c97ad2c",
+    "/mnt/data/students/lph/recording/vln_ppsr_v3_task_return_replan_20260618_211206/data/v3_method_summary.csv": "d227f3f03079bb663d51bf3bfe560ba0aedcdc45564e55b558caffa4d0ccc441",
+    "/mnt/data/students/lph/recording/vln_ppsr_v3_task_return_replan_20260618_211206/data/v3_policy_ready_audit.csv": "c38384480c619f63875cef527df3fa037698be92db11a80da8343bba7fb84a72",
+    "/mnt/data/students/lph/recording/vln_ppsr_v3_task_return_replan_20260618_211206/data/v3_selected_replans.csv": "0051f73d820372c178f7f46a2c07cc9aa204fd98ef25d07e5340b5f29d98d15f",
+    "/mnt/data/students/lph/recording/vln_ppsr_v3_task_return_replan_20260618_211206/data/v3_stop_source_audit.json": "7226762be80250474a4442c29b04c17c57843b87ef52f79ded51aea2203de8e5",
+    "/mnt/data/students/lph/recording/vln_ppsr_v3_task_return_replan_20260618_211206/ppsr_v3_task_return_report.md": "2ea339ee4af0695e1cae96420a690c4d776c453545508da062e912e5dc921532",
+    "/mnt/data/students/lph/recording/vln_ppsr_v3_task_return_replan_20260618_211206/run_manifest.json": "9e81298daf95f8ed7dba7d656d073d3b50b62ad1cdb12224b10b069532542eda"
+  },
+  "learned_ranker_used": false,
+  "locked_episodes_per_method": null,
+  "locked_method_summary": [
+    {
+      "loop_rate": "0.0",
+      "method": "vln_only",
+      "next_vln_action_allowed_rate": "0.0",
+      "post_reject_progress": "0.0",
+      "recovery_stop_success_leakage_count": "0",
+      "reject_count": "0",
+      "reject_to_policy_ready_rate": "0.0",
+      "safe_success_rate": "0.35",
+      "safety_stop_success_leakage_count": "0",
+      "unsafe_violation_rate": "0.5"
+    },
+    {
+      "loop_rate": "0.0",
+      "method": "vln_casa_replan",
+      "next_vln_action_allowed_rate": "0.0",
+      "post_reject_progress": "-0.011348090671962286",
+      "recovery_stop_success_leakage_count": "0",
+      "reject_count": "453",
+      "reject_to_policy_ready_rate": "0.0",
+      "safe_success_rate": "0.15",
+      "safety_stop_success_leakage_count": "0",
+      "unsafe_violation_rate": "0.0"
+    },
+    {
+      "loop_rate": "1.9584352078239609",
+      "method": "vln_dmps_mpc_cbf_progress",
+      "next_vln_action_allowed_rate": "0.0",
+      "post_reject_progress": "0.0",
+      "recovery_stop_success_leakage_count": "0",
+      "reject_count": "409",
+      "reject_to_policy_ready_rate": "0.0",
+      "safe_success_rate": "0.35",
+      "safety_stop_success_leakage_count": "0",
+      "unsafe_violation_rate": "0.0"
+    },
+    {
+      "loop_rate": "0.6556291390728477",
+      "method": "vln_ppsr_v2_escape_macro",
+      "next_vln_action_allowed_rate": "0.0",
+      "post_reject_progress": "0.04009266189771068",
+      "recovery_stop_success_leakage_count": "0",
+      "reject_count": "151",
+      "reject_to_policy_ready_rate": "0.0",
+      "safe_success_rate": "0.25",
+      "safety_stop_success_leakage_count": "0",
+      "unsafe_violation_rate": "0.0"
+    },
+    {
+      "loop_rate": "0.0",
+      "method": "vln_ppsr_v3_task_return_replan",
+      "next_vln_action_allowed_rate": "1.0",
+      "post_reject_progress": "-0.017959308266983335",
+      "recovery_stop_success_leakage_count": "0",
+      "reject_count": "165",
+      "reject_to_policy_ready_rate": "1.0",
+      "safe_success_rate": "0.3",
+      "safety_stop_success_leakage_count": "0",
+      "unsafe_violation_rate": "0.0"
+    }
+  ],
+  "max_steps": 52,
+  "output_dir": "/mnt/data/students/lph/recording/vln_ppsr_v3_task_return_replan_20260618_211206",
+  "ppsr_v3_horizon": 5,
+  "ppsr_v3_max_execute_steps": 2,
+  "ppsr_v3_safety_margin": 0.05,
+  "real_navid_or_uninavid_used": true,
+  "status_note": "Dev all-method max52 improved over PPSR-v2 and matched DMPS; locked held-out improved over PPSR-v2 but did not meet DMPS safe_success_rate, so no PASS is claimed."
+}

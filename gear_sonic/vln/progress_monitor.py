@@ -251,10 +251,18 @@ def _tail_count(values: list[str], item: str) -> int:
 
 
 def _action_family(action: str) -> str:
-    if action in {"small_turn_left", "turn_left"}:
+    if action in {"small_turn_left", "turn_left", "wide_turn_left", "target_reacquire_turn_left"}:
         return "turn_left"
-    if action in {"small_turn_right", "turn_right"}:
+    if action in {"small_turn_right", "turn_right", "wide_turn_right", "target_reacquire_turn_right"}:
         return "turn_right"
-    if action in {"short_forward", "short_forward_segment"}:
+    if action in {
+        "short_forward",
+        "short_forward_segment",
+        "open_space_seek",
+        "wide_arc_left",
+        "wide_arc_right",
+        "wall_follow_left",
+        "wall_follow_right",
+    }:
         return "forward"
     return action
