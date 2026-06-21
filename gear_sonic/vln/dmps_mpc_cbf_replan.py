@@ -31,6 +31,10 @@ PPSR_V3_METHOD_NAME = "vln_ppsr_v3_task_return_replan"
 PPSR_V3_ALIASES = ("vln_task_return_replan", "vln_ppsr_task_return_replan")
 PPSR_V3_LAST_RESORT_STOP_SOURCE = "ppsr_v3_last_resort_stop"
 PPSR_V3_COMMITMENT_ABORT_STOP_SOURCE = "ppsr_v3_commitment_abort_stop"
+PPSR_V4_METHOD_NAME = "vln_ppsr_v4_zero_unsafe_success60"
+PPSR_V4_ALIASES = ("vln_ppsr_v4", "vln_ppsr_zero_unsafe_success60")
+PPSR_V4_LAST_RESORT_STOP_SOURCE = "ppsr_v4_last_resort_stop"
+PPSR_V4_COMMITMENT_ABORT_STOP_SOURCE = "ppsr_v4_commitment_abort_stop"
 
 
 DEFAULT_SCORE_WEIGHTS = {
@@ -68,6 +72,15 @@ PPSR_V3_SCORE_WEIGHTS = {
     "repeated_reject_penalty": 1.10,
     "stop_penalty": 3.50,
     "excessive_detour_penalty": 0.55,
+}
+
+PPSR_V4_SCORE_WEIGHTS = {
+    **PPSR_V3_SCORE_WEIGHTS,
+    "policy_ready_score": 1.70,
+    "visual_landmark_retention_score": 0.85,
+    "clearance_gain_score": 0.95,
+    "loop_penalty": 2.15,
+    "repeated_reject_penalty": 1.45,
 }
 
 
@@ -209,6 +222,8 @@ def normalize_dmps_method(method: str) -> str:
         return PPSR_V2_METHOD_NAME
     if method in PPSR_V3_ALIASES:
         return PPSR_V3_METHOD_NAME
+    if method in PPSR_V4_ALIASES:
+        return PPSR_V4_METHOD_NAME
     return method
 
 
@@ -222,6 +237,10 @@ def is_ppsr_v2_method(method: str) -> bool:
 
 def is_ppsr_v3_method(method: str) -> bool:
     return normalize_dmps_method(method) == PPSR_V3_METHOD_NAME
+
+
+def is_ppsr_v4_method(method: str) -> bool:
+    return normalize_dmps_method(method) == PPSR_V4_METHOD_NAME
 
 
 def build_candidate_sequences(
@@ -734,11 +753,14 @@ def select_ppsr_v3_replan(
     horizon: int,
     safety_margin: float,
     score_weights: dict[str, float] | None = None,
+    variant: str = "v3",
 ) -> DmpsSelection:
     del bridge
-    weights = {**PPSR_V3_SCORE_WEIGHTS, **(score_weights or {})}
+    base_weights = PPSR_V4_SCORE_WEIGHTS if variant == "v4" else PPSR_V3_SCORE_WEIGHTS
+    weights = {**base_weights, **(score_weights or {})}
     visual = compute_visual_free_space(image_path)
     target_cue = target_or_stop_cue_score(image_path)
+    target_ratio = target_visual_ratio_score(image_path)
     snapshot = progress_monitor.snapshot(step_idx=step_idx)
     candidates, signal = build_ppsr_v3_candidate_sequences(
         pose=pose,
@@ -746,6 +768,12 @@ def select_ppsr_v3_replan(
         progress_monitor=progress_monitor,
         horizon=horizon,
     )
+    signal["step_idx"] = int(step_idx)
+    signal["target_cue_score"] = float(target_cue)
+    signal["target_ratio"] = float(target_ratio)
+    if variant == "v4":
+        candidates = add_ppsr_v4_recovery_sequences(candidates, pose=pose, horizon=horizon)
+        signal["candidate_library_size"] = len(candidates)
     raw_scores: list[CandidateScore] = []
     rollout_rows: list[dict[str, Any]] = []
     for candidate in candidates:
@@ -761,21 +789,28 @@ def select_ppsr_v3_replan(
             nominal_action=nominal_action.value,
             candidate_sequence=list(candidate.actions),
         )
-        raw_scores.append(
-            score_ppsr_v3_candidate(
-                candidate=candidate,
-                rollout=rollout,
-                nominal_action=nominal_action,
+        score = score_ppsr_v3_candidate(
+            candidate=candidate,
+            rollout=rollout,
+            nominal_action=nominal_action,
+            visual_free_space=visual,
+            target_cue_score=target_cue,
+            penalties=penalties,
+            weights=weights,
+            safety_margin=safety_margin,
+            maze=maze,
+            robot_radius=robot_radius,
+            signal=signal,
+        )
+        if variant == "v4":
+            score = apply_ppsr_v4_recovery_ranker(
+                score=score,
+                progress_monitor=progress_monitor,
+                signal=signal,
                 visual_free_space=visual,
                 target_cue_score=target_cue,
-                penalties=penalties,
-                weights=weights,
-                safety_margin=safety_margin,
-                maze=maze,
-                robot_radius=robot_radius,
-                signal=signal,
             )
-        )
+        raw_scores.append(score)
 
     safe_translation_candidate_exists = any(
         score.safety_feasible and score.contains_translation and score.candidate_sequence[0] != "stop_as_last_resort"
@@ -795,6 +830,8 @@ def select_ppsr_v3_replan(
         )
         for score in raw_scores
     ]
+    if variant == "v4":
+        scored = apply_ppsr_v4_recovery_hard_mask(scored, progress_monitor=progress_monitor, signal=signal)
     non_stop_safe = [
         item
         for item in scored
@@ -863,6 +900,317 @@ def select_ppsr_v3_replan(
         recent_loop_flag=bool(signal["recent_loop_flag"]),
         policy_ready_candidate_exists=bool(policy_ready_candidate_exists),
     )
+
+
+def apply_ppsr_v4_recovery_ranker(
+    *,
+    score: CandidateScore,
+    progress_monitor: ProgressMonitor,
+    signal: dict[str, Any],
+    visual_free_space: dict[str, Any],
+    target_cue_score: float,
+) -> CandidateScore:
+    """Bias v4 recovery away from repeated backoff loops using non-privileged signals."""
+
+    first = score.candidate_sequence[0] if score.candidate_sequence else "stop_as_last_resort"
+    first_family = action_family(first)
+    state = progress_monitor.state
+    backoff_overuse = int(state.backoff_overuse_counter)
+    repeated_reject = int(signal.get("repeated_reject_counter", 0))
+    recovery_stuck = int(signal.get("recovery_stuck_counter", 0))
+    total = float(score.total_score)
+    step_idx = int(signal.get("step_idx", 0) or 0)
+    late_corridor_pressure = (
+        step_idx >= 90
+        and float(signal.get("target_ratio", target_cue_score) or 0.0) <= 0.12
+        and (
+            repeated_reject >= 2
+            or recovery_stuck >= 1
+            or bool(signal.get("recent_loop_flag"))
+        )
+    )
+
+    if first_family == "backoff":
+        total -= min(2.50, 0.50 * backoff_overuse + 0.28 * repeated_reject + 0.35 * recovery_stuck)
+
+    exploration_first = first in {
+        "open_space_seek",
+        "wall_follow_left",
+        "wall_follow_right",
+        "target_reacquire_turn_left",
+        "target_reacquire_turn_right",
+        "wide_arc_left",
+        "wide_arc_right",
+    }
+    if score.safety_feasible and score.contains_translation and exploration_first:
+        if backoff_overuse >= 2 or repeated_reject >= 2 or recovery_stuck >= 1:
+            total += 0.55
+        if score.next_vln_action_allowed:
+            total += 0.20
+        if score.terminal_front_clearance >= 0.18 or score.terminal_side_clearance >= 0.22:
+            total += 0.20
+
+    if first == "open_space_seek":
+        max_visual_open = max(
+            float(visual_free_space.get("left_score", 0.0)),
+            float(visual_free_space.get("center_score", 0.0)),
+            float(visual_free_space.get("right_score", 0.0)),
+        )
+        total += 0.25 * max_visual_open
+    if first in {"target_reacquire_turn_left", "target_reacquire_turn_right"} and target_cue_score > 0.01:
+        total += 0.35
+    if _v4_mixed_reacquire_backoff_candidate(score.candidate_sequence):
+        if score.policy_ready_state:
+            total += 0.25
+        if repeated_reject >= 1 or recovery_stuck >= 1:
+            total += 0.35
+        if float(score.clearance_gain) >= 0.0:
+            total += 0.15
+
+    if late_corridor_pressure and score.safety_feasible and score.policy_ready_state and score.contains_translation:
+        if first == "open_space_seek":
+            total += 0.45
+        elif first in {"wall_follow_left", "wall_follow_right"}:
+            total += 0.35
+        elif first in {"wide_arc_left", "wide_arc_right"}:
+            total -= 0.20
+        elif first in {"target_reacquire_turn_left", "target_reacquire_turn_right"}:
+            total -= 0.60
+        if _v4_mixed_reacquire_backoff_candidate(score.candidate_sequence):
+            total -= 0.75
+
+    if signal.get("enable_late_sweep_bonus"):
+        total = apply_ppsr_v4_late_sweep_bonus(
+            score=score,
+            signal=signal,
+            total=total,
+        )
+
+    return CandidateScore(**{**asdict(score), "total_score": float(total)})
+
+
+def apply_ppsr_v4_late_sweep_bonus(
+    *,
+    score: CandidateScore,
+    signal: dict[str, Any],
+    total: float,
+) -> float:
+    """Late v4 recovery calibration for route-complete turn/reject loops.
+
+    This uses only step count, local rollout safety/clearance, and short-term
+    reject/recovery counters. It deliberately avoids goal distance, oracle
+    waypoints, map-cell progress, A*, and evaluator success.
+    """
+
+    step_idx = int(signal.get("step_idx", 0) or 0)
+    repeated_reject = int(signal.get("repeated_reject_counter", 0) or 0)
+    recovery_stuck = int(signal.get("recovery_stuck_counter", 0) or 0)
+    recent_loop = bool(signal.get("recent_loop_flag"))
+    if step_idx < 80 or (repeated_reject < 2 and recovery_stuck < 1 and not recent_loop):
+        return float(total)
+    if not score.safety_feasible or not score.policy_ready_state or not score.contains_translation:
+        return float(total)
+
+    first = score.candidate_sequence[0] if score.candidate_sequence else "stop_as_last_resort"
+    front_clearance = float(score.terminal_front_clearance)
+    side_clearance = float(score.terminal_side_clearance)
+    min_clearance = float(score.min_clearance)
+    open_corridor = max(front_clearance, side_clearance)
+    calibrated_total = float(total)
+
+    if first in {"wide_arc_left", "wide_arc_right"}:
+        calibrated_total += 0.72
+    elif first == "open_space_seek":
+        calibrated_total += 0.62
+    elif first in {"wall_follow_left", "wall_follow_right"}:
+        calibrated_total += 0.18
+        if front_clearance < 0.18:
+            calibrated_total -= 0.36
+
+    if _v4_mixed_reacquire_backoff_candidate(score.candidate_sequence):
+        if front_clearance < 0.35 and open_corridor < 0.42:
+            calibrated_total -= 0.62
+        elif front_clearance >= 0.45 and side_clearance >= 0.45:
+            calibrated_total += 0.18
+
+    if first in {"target_reacquire_turn_left", "target_reacquire_turn_right"} and "backoff" not in score.candidate_sequence:
+        calibrated_total += 0.20
+
+    if min_clearance < 0.12:
+        calibrated_total -= 0.30
+    return float(calibrated_total)
+
+
+def add_ppsr_v4_recovery_sequences(
+    candidates: list[CandidateSequence],
+    *,
+    pose: RobotPose2D,
+    horizon: int,
+) -> list[CandidateSequence]:
+    """Add v4-only mixed recoveries without changing v3 candidate behavior."""
+
+    heading = float(pose.yaw_deg)
+    max_len = max(2, min(5, int(horizon)))
+    seen = {tuple(candidate.actions) for candidate in candidates}
+    extras = [
+        (
+            "v4_reacquire_left_backoff_left_forward",
+            ("target_reacquire_turn_left", "backoff", "turn_left", "short_forward"),
+        ),
+        (
+            "v4_reacquire_right_backoff_right_forward",
+            ("target_reacquire_turn_right", "backoff", "turn_right", "short_forward"),
+        ),
+        (
+            "v4_reacquire_left_backoff_wide_left_forward",
+            ("target_reacquire_turn_left", "backoff", "wide_turn_left", "short_forward"),
+        ),
+        (
+            "v4_reacquire_right_backoff_wide_right_forward",
+            ("target_reacquire_turn_right", "backoff", "wide_turn_right", "short_forward"),
+        ),
+    ]
+    output = list(candidates)
+    for sequence_id, actions in extras:
+        clipped = tuple(actions[:max_len])
+        if clipped in seen:
+            continue
+        seen.add(clipped)
+        output.append(
+            CandidateSequence(
+                sequence_id=sequence_id,
+                actions=clipped,
+                skills=tuple(_skills_for_sequence(clipped, heading)),
+                stop_as_last_resort=False,
+                escape_macro=True,
+            )
+        )
+    return output
+
+
+def _v4_mixed_reacquire_backoff_candidate(actions: tuple[str, ...]) -> bool:
+    return (
+        len(actions) >= 3
+        and actions[0] in {"target_reacquire_turn_left", "target_reacquire_turn_right"}
+        and "backoff" in actions[1:3]
+        and actions[-1] == "short_forward"
+    )
+
+
+def apply_ppsr_v4_recovery_hard_mask(
+    scores: list[CandidateScore],
+    *,
+    progress_monitor: ProgressMonitor,
+    signal: dict[str, Any],
+) -> list[CandidateScore]:
+    """Prevent v4 from selecting another backoff when a safe exploratory recovery is available."""
+
+    recent_loop = bool(signal.get("recent_loop_flag"))
+    repeated_reject = int(signal.get("repeated_reject_counter", 0))
+    recovery_stuck = int(signal.get("recovery_stuck_counter", 0))
+    step_idx = int(signal.get("step_idx", 0) or 0)
+    target_cue_score = float(signal.get("target_cue_score", 0.0) or 0.0)
+    target_ratio = float(signal.get("target_ratio", target_cue_score) or 0.0)
+    backoff_pressure = (
+        progress_monitor.state.backoff_overuse_counter >= 2
+        or repeated_reject >= 3
+        or recovery_stuck >= 1
+    )
+    mixed_reacquire_pressure = recent_loop
+
+    loop_masked_scores: list[CandidateScore] = []
+    for score in scores:
+        if mixed_reacquire_pressure and _v4_mixed_reacquire_backoff_candidate(score.candidate_sequence):
+            reasons = tuple([*score.hard_mask_reasons, "v4_mixed_reacquire_backoff_blocked_under_recent_loop"])
+            loop_masked_scores.append(
+                CandidateScore(
+                    **{
+                        **asdict(score),
+                        "hard_mask_applied": True,
+                        "hard_mask_reasons": reasons,
+                        "masked_candidates": tuple([*score.masked_candidates, score.sequence_candidate_id]),
+                        "total_score": -1e6,
+                    }
+                )
+            )
+        else:
+            loop_masked_scores.append(score)
+
+    if not backoff_pressure:
+        backoff_mask_input = loop_masked_scores
+    else:
+        backoff_mask_input = loop_masked_scores
+
+    alternative_exists = any(
+        score.safety_feasible
+        and not score.hard_mask_applied
+        and score.contains_translation
+        and score.candidate_sequence
+        and action_family(score.candidate_sequence[0]) != "backoff"
+        and score.candidate_sequence[0] != "stop_as_last_resort"
+        for score in loop_masked_scores
+    )
+    late_corridor_pressure = (
+        step_idx >= 90
+        and target_ratio <= 0.12
+        and (repeated_reject >= 2 or recovery_stuck >= 1 or recent_loop)
+    )
+    corridor_firsts = {"open_space_seek", "wall_follow_left", "wall_follow_right", "wide_arc_left", "wide_arc_right"}
+    late_corridor_candidate_exists = any(
+        score.safety_feasible
+        and not score.hard_mask_applied
+        and score.policy_ready_state
+        and score.contains_translation
+        and score.candidate_sequence
+        and score.candidate_sequence[0] in corridor_firsts
+        for score in backoff_mask_input
+    )
+    if late_corridor_pressure and late_corridor_candidate_exists:
+        corridor_masked: list[CandidateScore] = []
+        for score in backoff_mask_input:
+            first = score.candidate_sequence[0] if score.candidate_sequence else "stop_as_last_resort"
+            should_mask = first in {"target_reacquire_turn_left", "target_reacquire_turn_right"}
+            if should_mask and first != "stop_as_last_resort":
+                reasons = tuple([*score.hard_mask_reasons, "v4_late_corridor_candidate_preferred_over_reacquire_loop"])
+                corridor_masked.append(
+                    CandidateScore(
+                        **{
+                            **asdict(score),
+                            "hard_mask_applied": True,
+                            "hard_mask_reasons": reasons,
+                            "masked_candidates": tuple([*score.masked_candidates, score.sequence_candidate_id]),
+                            "total_score": -1e6,
+                        }
+                    )
+                )
+            else:
+                corridor_masked.append(score)
+        backoff_mask_input = corridor_masked
+
+    if not backoff_pressure:
+        return backoff_mask_input
+    if not alternative_exists:
+        return backoff_mask_input
+
+    masked: list[CandidateScore] = []
+    for score in backoff_mask_input:
+        first = score.candidate_sequence[0] if score.candidate_sequence else "stop_as_last_resort"
+        if first != "stop_as_last_resort" and action_family(first) == "backoff":
+            reasons = tuple([*score.hard_mask_reasons, "v4_backoff_overuse_alternative_available"])
+            masked.append(
+                CandidateScore(
+                    **{
+                        **asdict(score),
+                        "hard_mask_applied": True,
+                        "hard_mask_reasons": reasons,
+                        "masked_candidates": tuple([*score.masked_candidates, score.sequence_candidate_id]),
+                        "total_score": -1e6,
+                    }
+                )
+            )
+        else:
+            masked.append(score)
+    return masked
 
 
 def apply_ppsr_v2_hard_mask(
@@ -1626,6 +1974,17 @@ def target_or_stop_cue_score(image_path: str | Path | None) -> float:
     data = evidence.to_dict()
     centered = evidence.center_x is not None and 0.15 <= evidence.center_x <= 0.85
     return float(min(1.0, data.get("target_ratio", 0.0) + data.get("bbox_area_ratio", 0.0) + (0.2 if centered else 0.0)))
+
+
+def target_visual_ratio_score(image_path: str | Path | None) -> float:
+    if image_path is None:
+        return 0.0
+    try:
+        evidence = detect_gallery_wall_painting(image_path)
+    except Exception:
+        return 0.0
+    data = evidence.to_dict()
+    return float(data.get("target_ratio", 0.0) or 0.0)
 
 
 def candidate_scores_to_rows(

@@ -35,6 +35,8 @@ NON_SUCCESS_STOP_SOURCES = {
     "ppsr_v2_commitment_abort_stop",
     "ppsr_v3_last_resort_stop",
     "ppsr_v3_commitment_abort_stop",
+    "ppsr_v4_last_resort_stop",
+    "ppsr_v4_commitment_abort_stop",
     "runtime_wait",
     "episode_boundary_idle",
     "safety_reset_idle",
@@ -371,6 +373,10 @@ def policy_internal_guard_summary(metadata: dict[str, Any]) -> tuple[bool, str]:
         "turn_streak_forward_guard_applied",
         "turn_cycle_forward_burst_guard_applied",
         "turn_cycle_opposite_turn_guard_applied",
+        "ppsr_v4_stop_verifier_applied",
+        "ppsr_v4_premature_stop_suppressed",
+        "ppsr_v4_late_stop_recovery_applied",
+        "ppsr_v4_visual_goal_tracker_applied",
     ]
     applied = [key for key in guard_keys if metadata.get(key)]
     return bool(applied), ",".join(applied)

@@ -43,10 +43,16 @@ from .dmps_mpc_cbf_replan import (
     PPSR_V3_LAST_RESORT_STOP_SOURCE,
     PPSR_V3_METHOD_NAME,
     PPSR_V3_SCORE_WEIGHTS,
+    PPSR_V4_ALIASES,
+    PPSR_V4_COMMITMENT_ABORT_STOP_SOURCE,
+    PPSR_V4_LAST_RESORT_STOP_SOURCE,
+    PPSR_V4_METHOD_NAME,
+    PPSR_V4_SCORE_WEIGHTS,
     candidate_scores_to_rows,
     is_dmps_method,
     is_ppsr_v2_method,
     is_ppsr_v3_method,
+    is_ppsr_v4_method,
     normalize_dmps_method,
     rollout_candidate_sequence,
     select_dmps_replan,
@@ -61,6 +67,12 @@ from .maze import MazeMap, generate_routes
 from .metrics import append_jsonl, distance_to_goal, write_json
 from .no_casa_mujoco import MujocoMazeSkillEnv, draw_topdown_map, write_video
 from .no_casa_policy import InferenceInput
+from .ppsr_v4_stop import (
+    PpsrV4StopVerifierConfig,
+    apply_ppsr_v4_stop_verifier,
+    build_v4_stop_audit,
+    detect_privileged_online_leakage,
+)
 from .progress_monitor import ProgressMonitor
 from .no_casa_runner import (
     MAP_METADATA as LEGACY_MAP_METADATA,
@@ -101,6 +113,7 @@ METHODS = (
     DMPS_METHOD_NAME,
     PPSR_V2_METHOD_NAME,
     PPSR_V3_METHOD_NAME,
+    PPSR_V4_METHOD_NAME,
 )
 DECISION_LOG_COLUMNS = [
     "method",
@@ -206,13 +219,25 @@ class CasaVlnRunnerConfig:
     ppsr_v3_max_execute_steps: int = 2
     ppsr_v3_safety_margin: float = 0.05
     ppsr_v3_score_config: Path | None = None
+    ppsr_v4_horizon: int = 5
+    ppsr_v4_max_execute_steps: int = 3
+    ppsr_v4_safety_margin: float = 0.06
+    ppsr_v4_strong_visual_ratio: float = 0.65
+    ppsr_v4_strong_visual_bbox_area: float = 0.75
+    ppsr_v4_policy_stop_visual_ratio: float = 0.30
+    ppsr_v4_route_complete_visual_ratio: float = 0.65
+    ppsr_v4_late_recovery_visual_ratio: float = 0.45
     progress_score_config: Path | None = None
     score_weights: dict[str, float] | None = None
     previous_casa_vln_result_path: Path = Path("/mnt/data/students/lph/recording/casa_vln_safety_locked_real_navid_20260611_190121")
     seeds: tuple[int, ...] = (260611,)
+    eval_stage: str = "dev"
+    v4_dev_iteration: int = 0
+    locked_attempt_id: str = ""
     record_video: bool = True
     dry_run: bool = False
     strict: bool = False
+    postprocess_existing: bool = False
 
 
 def default_output_dir() -> Path:
@@ -371,6 +396,18 @@ def run_episode_with_method(
         )
         decision = policy.next_action(obs)
         backend_result = getattr(policy, "last_result", None)
+        if is_ppsr_v4_method(method):
+            decision = apply_ppsr_v4_stop_verifier(
+                obs=obs,
+                decision=decision,
+                config=PpsrV4StopVerifierConfig(
+                    strong_visual_ratio=config.ppsr_v4_strong_visual_ratio,
+                    strong_visual_bbox_area=config.ppsr_v4_strong_visual_bbox_area,
+                    policy_stop_visual_ratio=config.ppsr_v4_policy_stop_visual_ratio,
+                    route_complete_visual_ratio=config.ppsr_v4_route_complete_visual_ratio,
+                    late_recovery_visual_ratio=config.ppsr_v4_late_recovery_visual_ratio,
+                ),
+            )
         metadata = dict(decision.metadata or {})
         internal_guard_applied, internal_guard_names = policy_internal_guard_summary(metadata)
         vln_raw_action = metadata.get("real_navid_parsed_action") or _raw_action_from_decision(decision)
@@ -432,6 +469,19 @@ def run_episode_with_method(
         ppsr_v3_second_skill_status = ""
         ppsr_v3_second_wall_collision = False
         ppsr_v3_second_fall = False
+        ppsr_v4_third_action = ""
+        ppsr_v4_third_action_safety_feasible = False
+        ppsr_v4_third_step_executed = False
+        ppsr_v4_third_step_aborted = False
+        ppsr_v4_third_skill_status = ""
+        ppsr_v4_fourth_action = ""
+        ppsr_v4_fourth_action_safety_feasible = False
+        ppsr_v4_fourth_step_executed = False
+        ppsr_v4_fourth_step_aborted = False
+        ppsr_v4_fourth_skill_status = ""
+        ppsr_v4_stop_verifier_applied = bool(metadata.get("ppsr_v4_stop_verifier_applied", False))
+        ppsr_v4_premature_stop_suppressed = bool(metadata.get("ppsr_v4_premature_stop_suppressed", False))
+        ppsr_v4_late_stop_recovery_applied = bool(metadata.get("ppsr_v4_late_stop_recovery_applied", False))
         non_stop_recovery_selected = False
         all_non_stop_candidates_infeasible = False
         rejected_candidate_skill_was_executed = False
@@ -589,7 +639,8 @@ def run_episode_with_method(
                             }
                         )
                         dmps_rollout_rows.append(rollout_row)
-                elif is_ppsr_v3_method(method):
+                elif is_ppsr_v3_method(method) or is_ppsr_v4_method(method):
+                    ppsr_v4 = is_ppsr_v4_method(method)
                     dmps_selection = select_ppsr_v3_replan(
                         bridge=bridge,
                         pose=pose_before,
@@ -599,9 +650,10 @@ def run_episode_with_method(
                         image_path=frame_path,
                         progress_monitor=progress_monitor,
                         step_idx=step_idx,
-                        horizon=config.ppsr_v3_horizon,
-                        safety_margin=config.ppsr_v3_safety_margin,
+                        horizon=config.ppsr_v4_horizon if ppsr_v4 else config.ppsr_v3_horizon,
+                        safety_margin=config.ppsr_v4_safety_margin if ppsr_v4 else config.ppsr_v3_safety_margin,
                         score_weights=config.score_weights,
+                        variant="v4" if ppsr_v4 else "v3",
                     )
                     dmps_replan_applied = True
                     ppsr_v3_replan_applied = True
@@ -632,7 +684,7 @@ def run_episode_with_method(
                     ppsr_v3_language_progress_score = float(dmps_selection.selected_score.language_progress_score)
                     ppsr_v3_policy_ready_score = float(dmps_selection.selected_score.policy_ready_score)
                     if selected_sequence.stop_as_last_resort:
-                        stop_source = PPSR_V3_LAST_RESORT_STOP_SOURCE
+                        stop_source = PPSR_V4_LAST_RESORT_STOP_SOURCE if ppsr_v4 else PPSR_V3_LAST_RESORT_STOP_SOURCE
                     dmps_candidate_rows.extend(
                         candidate_scores_to_rows(
                             method=method,
@@ -735,7 +787,7 @@ def run_episode_with_method(
             )
             should_execute_second = (
                 len(selected_sequence.actions) >= 2
-                and config.ppsr_v3_max_execute_steps >= 2
+                and (config.ppsr_v4_max_execute_steps if is_ppsr_v4_method(method) else config.ppsr_v3_max_execute_steps) >= 2
                 and selected_sequence.actions[0] != "stop_as_last_resort"
                 and result.status not in {"blocked", "collision"}
                 and not result.fall
@@ -744,6 +796,9 @@ def run_episode_with_method(
                 ppsr_v3_second_action = selected_sequence.actions[1]
                 current_pose = env.pose()
                 second_skill = skill_for_recovery_action(ppsr_v3_second_action, current_pose.yaw_deg)
+                ppsr_v3_or_v4_safety_margin = (
+                    config.ppsr_v4_safety_margin if is_ppsr_v4_method(method) else config.ppsr_v3_safety_margin
+                )
                 second_candidate = CandidateSequence(
                     sequence_id=f"v3_commit_{ppsr_v3_second_action}",
                     actions=(ppsr_v3_second_action,),
@@ -755,7 +810,7 @@ def run_episode_with_method(
                     start_pose=current_pose,
                     maze=env.maze,
                     robot_radius=env.robot_radius,
-                    safety_margin=config.ppsr_v3_safety_margin,
+                    safety_margin=ppsr_v3_or_v4_safety_margin,
                 )
                 ppsr_v3_second_action_safety_feasible = bool(second_rollout.safety_feasible)
                 if second_rollout.safety_feasible and ppsr_v3_second_action != "stop_as_last_resort":
@@ -769,6 +824,78 @@ def run_episode_with_method(
                     distance_after = distance_to_goal(task, pose_after)
                     if second_result.status in {"blocked", "collision"} or second_result.fall:
                         ppsr_v3_commitment_abort_reason = f"second_step_runtime_{second_result.status}"
+                    elif (
+                        is_ppsr_v4_method(method)
+                        and config.ppsr_v4_max_execute_steps >= 3
+                        and len(selected_sequence.actions) >= 3
+                    ):
+                        ppsr_v4_third_action = selected_sequence.actions[2]
+                        current_pose = env.pose()
+                        third_skill = skill_for_recovery_action(ppsr_v4_third_action, current_pose.yaw_deg)
+                        third_candidate = CandidateSequence(
+                            sequence_id=f"v4_commit_{ppsr_v4_third_action}",
+                            actions=(ppsr_v4_third_action,),
+                            skills=(third_skill,),
+                            stop_as_last_resort=ppsr_v4_third_action == "stop_as_last_resort",
+                        )
+                        third_rollout = rollout_candidate_sequence(
+                            candidate=third_candidate,
+                            start_pose=current_pose,
+                            maze=env.maze,
+                            robot_radius=env.robot_radius,
+                            safety_margin=config.ppsr_v4_safety_margin,
+                        )
+                        ppsr_v4_third_action_safety_feasible = bool(third_rollout.safety_feasible)
+                        if third_rollout.safety_feasible and ppsr_v4_third_action != "stop_as_last_resort":
+                            third_result = env.execute_skill(third_skill)
+                            ppsr_v4_third_step_executed = True
+                            ppsr_v4_third_step_aborted = False
+                            ppsr_v4_third_skill_status = third_result.status
+                            ppsr_v3_second_wall_collision = ppsr_v3_second_wall_collision or bool(
+                                third_result.wall_collision
+                            )
+                            ppsr_v3_second_fall = ppsr_v3_second_fall or bool(third_result.fall)
+                            pose_after = env.pose()
+                            distance_after = distance_to_goal(task, pose_after)
+                            if third_result.status in {"blocked", "collision"} or third_result.fall:
+                                ppsr_v3_commitment_abort_reason = f"third_step_runtime_{third_result.status}"
+                            elif config.ppsr_v4_max_execute_steps >= 4 and len(selected_sequence.actions) >= 4:
+                                ppsr_v4_fourth_action = selected_sequence.actions[3]
+                                current_pose = env.pose()
+                                fourth_skill = skill_for_recovery_action(ppsr_v4_fourth_action, current_pose.yaw_deg)
+                                fourth_candidate = CandidateSequence(
+                                    sequence_id=f"v4_commit_{ppsr_v4_fourth_action}",
+                                    actions=(ppsr_v4_fourth_action,),
+                                    skills=(fourth_skill,),
+                                    stop_as_last_resort=ppsr_v4_fourth_action == "stop_as_last_resort",
+                                )
+                                fourth_rollout = rollout_candidate_sequence(
+                                    candidate=fourth_candidate,
+                                    start_pose=current_pose,
+                                    maze=env.maze,
+                                    robot_radius=env.robot_radius,
+                                    safety_margin=config.ppsr_v4_safety_margin,
+                                )
+                                ppsr_v4_fourth_action_safety_feasible = bool(fourth_rollout.safety_feasible)
+                                if fourth_rollout.safety_feasible and ppsr_v4_fourth_action != "stop_as_last_resort":
+                                    fourth_result = env.execute_skill(fourth_skill)
+                                    ppsr_v4_fourth_step_executed = True
+                                    ppsr_v4_fourth_step_aborted = False
+                                    ppsr_v4_fourth_skill_status = fourth_result.status
+                                    ppsr_v3_second_wall_collision = ppsr_v3_second_wall_collision or bool(
+                                        fourth_result.wall_collision
+                                    )
+                                    ppsr_v3_second_fall = ppsr_v3_second_fall or bool(fourth_result.fall)
+                                    pose_after = env.pose()
+                                    distance_after = distance_to_goal(task, pose_after)
+                                    if fourth_result.status in {"blocked", "collision"} or fourth_result.fall:
+                                        ppsr_v3_commitment_abort_reason = f"fourth_step_runtime_{fourth_result.status}"
+                                else:
+                                    ppsr_v4_fourth_step_aborted = True
+                                    ppsr_v3_commitment_abort_reason = fourth_rollout.safety_rejection_reason
+                        else:
+                            ppsr_v4_third_step_aborted = True
+                            ppsr_v3_commitment_abort_reason = third_rollout.safety_rejection_reason
                 else:
                     ppsr_v3_second_step_aborted = True
                     ppsr_v3_commitment_abort_reason = second_rollout.safety_rejection_reason
@@ -785,14 +912,14 @@ def run_episode_with_method(
                 pose=pose_after,
                 maze=env.maze,
                 robot_radius=env.robot_radius,
-                safety_margin=config.ppsr_v3_safety_margin,
+                safety_margin=config.ppsr_v4_safety_margin if is_ppsr_v4_method(method) else config.ppsr_v3_safety_margin,
             )
             action_probe = terminal_action_allowed_probe(
                 pose=pose_after,
                 next_action=action,
                 maze=env.maze,
                 robot_radius=env.robot_radius,
-                safety_margin=config.ppsr_v3_safety_margin,
+                safety_margin=config.ppsr_v4_safety_margin if is_ppsr_v4_method(method) else config.ppsr_v3_safety_margin,
             )
             ppsr_v3_post_reject_clearance_gain = float(end_clearance - start_clearance)
             ppsr_v3_post_reject_forward_reenabled = bool(probe["terminal_can_short_forward"])
@@ -805,7 +932,11 @@ def run_episode_with_method(
             )
             ppsr_v3_policy_ready_state = bool(
                 ppsr_v3_post_reject_unblocked
-                and (ppsr_v3_post_reject_forward_reenabled or ppsr_v3_terminal_side_clearance >= config.ppsr_v3_safety_margin)
+                and (
+                    ppsr_v3_post_reject_forward_reenabled
+                    or ppsr_v3_terminal_side_clearance
+                    >= (config.ppsr_v4_safety_margin if is_ppsr_v4_method(method) else config.ppsr_v3_safety_margin)
+                )
                 and ppsr_v3_actual_next_vln_action_allowed
                 and ppsr_v3_landmark_retained_or_reacquired
                 and not (ppsr_v3_recent_loop_flag and not selected_sequence.escape_macro)
@@ -835,7 +966,9 @@ def run_episode_with_method(
                     second_action_safety_feasible=ppsr_v2_second_action_safety_feasible
                     or ppsr_v3_second_action_safety_feasible,
                     abort_reason=ppsr_v2_commitment_abort_reason or ppsr_v3_commitment_abort_reason,
-                    max_commit_steps=config.ppsr_v3_max_execute_steps
+                    max_commit_steps=config.ppsr_v4_max_execute_steps
+                    if ppsr_v3_replan_applied and is_ppsr_v4_method(method)
+                    else config.ppsr_v3_max_execute_steps
                     if ppsr_v3_replan_applied
                     else config.ppsr_v2_max_commit_steps
                     if ppsr_v2_replan_applied
@@ -939,6 +1072,19 @@ def run_episode_with_method(
             "ppsr_v3_second_step_aborted": ppsr_v3_second_step_aborted,
             "ppsr_v3_second_skill_status": ppsr_v3_second_skill_status,
             "ppsr_v3_commitment_abort_reason": ppsr_v3_commitment_abort_reason,
+            "ppsr_v4_stop_verifier_applied": ppsr_v4_stop_verifier_applied,
+            "ppsr_v4_premature_stop_suppressed": ppsr_v4_premature_stop_suppressed,
+            "ppsr_v4_late_stop_recovery_applied": ppsr_v4_late_stop_recovery_applied,
+            "ppsr_v4_third_action": ppsr_v4_third_action,
+            "ppsr_v4_third_action_safety_feasible": ppsr_v4_third_action_safety_feasible,
+            "ppsr_v4_third_step_executed": ppsr_v4_third_step_executed,
+            "ppsr_v4_third_step_aborted": ppsr_v4_third_step_aborted,
+            "ppsr_v4_third_skill_status": ppsr_v4_third_skill_status,
+            "ppsr_v4_fourth_action": ppsr_v4_fourth_action,
+            "ppsr_v4_fourth_action_safety_feasible": ppsr_v4_fourth_action_safety_feasible,
+            "ppsr_v4_fourth_step_executed": ppsr_v4_fourth_step_executed,
+            "ppsr_v4_fourth_step_aborted": ppsr_v4_fourth_step_aborted,
+            "ppsr_v4_fourth_skill_status": ppsr_v4_fourth_skill_status,
             "non_stop_recovery_selected": non_stop_recovery_selected,
             "all_non_stop_candidates_infeasible": all_non_stop_candidates_infeasible,
             "post_reject_progress_evaluator_only": post_reject_progress,
@@ -984,6 +1130,26 @@ def run_episode_with_method(
             )
             previous_actions.append(_metrics_action(ppsr_v3_second_action))
             previous_status.append(ppsr_v3_second_skill_status or "ok")
+        if ppsr_v4_third_step_executed and ppsr_v4_third_action:
+            progress_monitor.record_step(
+                step_idx=step_idx,
+                executed_action=_metrics_action(ppsr_v4_third_action),
+                skill_status=ppsr_v4_third_skill_status or "ok",
+                stop_source="",
+                selected_recovery_action=ppsr_v4_third_action,
+            )
+            previous_actions.append(_metrics_action(ppsr_v4_third_action))
+            previous_status.append(ppsr_v4_third_skill_status or "ok")
+        if ppsr_v4_fourth_step_executed and ppsr_v4_fourth_action:
+            progress_monitor.record_step(
+                step_idx=step_idx,
+                executed_action=_metrics_action(ppsr_v4_fourth_action),
+                skill_status=ppsr_v4_fourth_skill_status or "ok",
+                stop_source="",
+                selected_recovery_action=ppsr_v4_fourth_action,
+            )
+            previous_actions.append(_metrics_action(ppsr_v4_fourth_action))
+            previous_status.append(ppsr_v4_fourth_skill_status or "ok")
         if metrics_action == VLNAction.STOP.value:
             break
 
@@ -1300,6 +1466,11 @@ def summarize_casa_episode(
     ppsr_v2_records = [record for record in decision_records if record.get("ppsr_v2_replan_applied")]
     ppsr_v2_clearance_gains = [float(record.get("ppsr_v2_post_reject_clearance_gain", 0.0)) for record in ppsr_v2_records]
     ppsr_v3_records = [record for record in decision_records if record.get("ppsr_v3_replan_applied")]
+    ppsr_v4_records = [
+        record
+        for record in decision_records
+        if record.get("method") == PPSR_V4_METHOD_NAME and record.get("ppsr_v3_replan_applied")
+    ]
     ppsr_v3_clearance_gains = [float(record.get("ppsr_v3_post_reject_clearance_gain", 0.0)) for record in ppsr_v3_records]
     readiness_replan_count = len(ppsr_v2_records) + len(ppsr_v3_records)
     repeat_reject_count = _repeat_reject_count(decision_records)
@@ -1332,6 +1503,8 @@ def summarize_casa_episode(
                 PPSR_V2_COMMITMENT_ABORT_STOP_SOURCE,
                 PPSR_V3_LAST_RESORT_STOP_SOURCE,
                 PPSR_V3_COMMITMENT_ABORT_STOP_SOURCE,
+                PPSR_V4_LAST_RESORT_STOP_SOURCE,
+                PPSR_V4_COMMITMENT_ABORT_STOP_SOURCE,
             }
             for record in decision_records
         )
@@ -1385,6 +1558,8 @@ def summarize_casa_episode(
                 PPSR_V2_COMMITMENT_ABORT_STOP_SOURCE,
                 PPSR_V3_LAST_RESORT_STOP_SOURCE,
                 PPSR_V3_COMMITMENT_ABORT_STOP_SOURCE,
+                PPSR_V4_LAST_RESORT_STOP_SOURCE,
+                PPSR_V4_COMMITMENT_ABORT_STOP_SOURCE,
             }
         ),
         "stop_source_distribution": stop_source_distribution,
@@ -1400,6 +1575,8 @@ def summarize_casa_episode(
                 PPSR_V2_COMMITMENT_ABORT_STOP_SOURCE,
                 PPSR_V3_LAST_RESORT_STOP_SOURCE,
                 PPSR_V3_COMMITMENT_ABORT_STOP_SOURCE,
+                PPSR_V4_LAST_RESORT_STOP_SOURCE,
+                PPSR_V4_COMMITMENT_ABORT_STOP_SOURCE,
             }
         ),
         "repeated_reject_loop_count": sum(
@@ -1427,6 +1604,22 @@ def summarize_casa_episode(
         "small_turn_recovery_count": small_turn_recovery_count,
         "ppsr_v3_replan_count": len(ppsr_v3_records),
         "ppsr_v3_repeated_replan_count": sum(1 for record in ppsr_v3_records if record.get("ppsr_v3_repeated_replan")),
+        "ppsr_v4_replan_count": len(ppsr_v4_records),
+        "ppsr_v4_stop_verifier_applied_count": sum(
+            1 for record in decision_records if record.get("ppsr_v4_stop_verifier_applied")
+        ),
+        "ppsr_v4_premature_stop_suppressed_count": sum(
+            1 for record in decision_records if record.get("ppsr_v4_premature_stop_suppressed")
+        ),
+        "ppsr_v4_late_stop_recovery_applied_count": sum(
+            1 for record in decision_records if record.get("ppsr_v4_late_stop_recovery_applied")
+        ),
+        "ppsr_v4_third_step_executed_count": sum(
+            1 for record in decision_records if record.get("ppsr_v4_third_step_executed")
+        ),
+        "ppsr_v4_fourth_step_executed_count": sum(
+            1 for record in decision_records if record.get("ppsr_v4_fourth_step_executed")
+        ),
         "post_reject_clearance_gain": _mean(ppsr_v3_clearance_gains or ppsr_v2_clearance_gains),
         "post_reject_forward_reenabled_count": sum(1 for record in ppsr_v2_records if record.get("ppsr_v2_post_reject_forward_reenabled"))
         + sum(1 for record in ppsr_v3_records if record.get("ppsr_v3_post_reject_forward_reenabled")),
@@ -1499,6 +1692,7 @@ def aggregate_method(episodes: list[dict[str, Any]]) -> dict[str, Any]:
     fallback_to_stop_count = sum(int(episode.get("fallback_to_stop_count", 0)) for episode in episodes)
     ppsr_v2_replan_count = sum(int(episode.get("ppsr_v2_replan_count", 0)) for episode in episodes)
     ppsr_v3_replan_count = sum(int(episode.get("ppsr_v3_replan_count", 0)) for episode in episodes)
+    ppsr_v4_replan_count = sum(int(episode.get("ppsr_v4_replan_count", 0)) for episode in episodes)
     escape_macro_selected_count = sum(int(episode.get("escape_macro_selected_count", 0)) for episode in episodes)
     escape_macro_commitment_count = sum(int(episode.get("escape_macro_commitment_count", 0)) for episode in episodes)
     escape_macro_commitment_success_count = sum(int(episode.get("escape_macro_commitment_success_count", 0)) for episode in episodes)
@@ -1562,6 +1756,22 @@ def aggregate_method(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         "ppsr_v2_replan_count": ppsr_v2_replan_count,
         "ppsr_v3_replan_count": ppsr_v3_replan_count,
         "ppsr_v3_repeated_replan_count": sum(int(episode.get("ppsr_v3_repeated_replan_count", 0)) for episode in episodes),
+        "ppsr_v4_replan_count": ppsr_v4_replan_count,
+        "ppsr_v4_stop_verifier_applied_count": sum(
+            int(episode.get("ppsr_v4_stop_verifier_applied_count", 0)) for episode in episodes
+        ),
+        "ppsr_v4_premature_stop_suppressed_count": sum(
+            int(episode.get("ppsr_v4_premature_stop_suppressed_count", 0)) for episode in episodes
+        ),
+        "ppsr_v4_late_stop_recovery_applied_count": sum(
+            int(episode.get("ppsr_v4_late_stop_recovery_applied_count", 0)) for episode in episodes
+        ),
+        "ppsr_v4_third_step_executed_count": sum(
+            int(episode.get("ppsr_v4_third_step_executed_count", 0)) for episode in episodes
+        ),
+        "ppsr_v4_fourth_step_executed_count": sum(
+            int(episode.get("ppsr_v4_fourth_step_executed_count", 0)) for episode in episodes
+        ),
         "ppsr_v2_hard_mask_count": sum(int(episode.get("ppsr_v2_hard_mask_count", 0)) for episode in episodes),
         "escape_macro_selected_count": escape_macro_selected_count,
         "escape_macro_selected_rate": escape_macro_selected_count / max(1, ppsr_v2_replan_count),
@@ -1666,7 +1876,14 @@ def write_table_csv(path: Path, rows: list[dict[str, Any]]) -> None:
             if key not in fieldnames:
                 fieldnames.append(key)
     with path.open("w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer = csv.DictWriter(
+            file,
+            fieldnames=fieldnames,
+            quoting=csv.QUOTE_MINIMAL,
+            escapechar="\\",
+            doublequote=True,
+            lineterminator="\n",
+        )
         writer.writeheader()
         for row in rows:
             writer.writerow({key: _csv_value(row.get(key)) for key in fieldnames})
@@ -1773,6 +1990,19 @@ def flatten_decision_record(record: dict[str, Any]) -> dict[str, Any]:
         "ppsr_v3_second_step_executed": record.get("ppsr_v3_second_step_executed"),
         "ppsr_v3_second_step_aborted": record.get("ppsr_v3_second_step_aborted"),
         "ppsr_v3_commitment_abort_reason": record.get("ppsr_v3_commitment_abort_reason"),
+        "ppsr_v4_stop_verifier_applied": record.get("ppsr_v4_stop_verifier_applied"),
+        "ppsr_v4_premature_stop_suppressed": record.get("ppsr_v4_premature_stop_suppressed"),
+        "ppsr_v4_late_stop_recovery_applied": record.get("ppsr_v4_late_stop_recovery_applied"),
+        "ppsr_v4_third_action": record.get("ppsr_v4_third_action"),
+        "ppsr_v4_third_action_safety_feasible": record.get("ppsr_v4_third_action_safety_feasible"),
+        "ppsr_v4_third_step_executed": record.get("ppsr_v4_third_step_executed"),
+        "ppsr_v4_third_step_aborted": record.get("ppsr_v4_third_step_aborted"),
+        "ppsr_v4_third_skill_status": record.get("ppsr_v4_third_skill_status"),
+        "ppsr_v4_fourth_action": record.get("ppsr_v4_fourth_action"),
+        "ppsr_v4_fourth_action_safety_feasible": record.get("ppsr_v4_fourth_action_safety_feasible"),
+        "ppsr_v4_fourth_step_executed": record.get("ppsr_v4_fourth_step_executed"),
+        "ppsr_v4_fourth_step_aborted": record.get("ppsr_v4_fourth_step_aborted"),
+        "ppsr_v4_fourth_skill_status": record.get("ppsr_v4_fourth_skill_status"),
         "non_stop_recovery_selected": record.get("non_stop_recovery_selected"),
         "all_non_stop_candidates_infeasible": record.get("all_non_stop_candidates_infeasible"),
         "post_reject_progress_evaluator_only": record.get("post_reject_progress_evaluator_only"),
@@ -1826,10 +2056,14 @@ def write_global_logs(data_dir: Path, episode_metrics: list[dict[str, Any]]) -> 
     ppsr_v2_selected_rows = [row for row in dmps_selected_rows if row.get("method") == PPSR_V2_METHOD_NAME]
     ppsr_v3_candidate_rows = [row for row in dmps_candidate_rows if row.get("method") == PPSR_V3_METHOD_NAME]
     ppsr_v3_selected_rows = [row for row in dmps_selected_rows if row.get("method") == PPSR_V3_METHOD_NAME]
+    ppsr_v4_candidate_rows = [row for row in dmps_candidate_rows if row.get("method") == PPSR_V4_METHOD_NAME]
+    ppsr_v4_selected_rows = [row for row in dmps_selected_rows if row.get("method") == PPSR_V4_METHOD_NAME]
     write_table_csv(data_dir / "ppsr_v2_candidate_sequences.csv", ppsr_v2_candidate_rows)
     write_table_csv(data_dir / "ppsr_v2_selected_replans.csv", ppsr_v2_selected_rows)
     write_table_csv(data_dir / "v3_candidate_sequences.csv", ppsr_v3_candidate_rows)
     write_table_csv(data_dir / "v3_selected_replans.csv", ppsr_v3_selected_rows)
+    write_table_csv(data_dir / "v4_candidate_sequences.csv", ppsr_v4_candidate_rows)
+    write_table_csv(data_dir / "v4_selected_replans.csv", ppsr_v4_selected_rows)
     write_table_csv(data_dir / "v3_policy_ready_audit.csv", ppsr_v3_candidate_rows)
     write_table_csv(data_dir / "v3_language_progress_audit.csv", ppsr_v3_candidate_rows)
     write_table_csv(data_dir / "terminal_sequence_score_audit.csv", ppsr_v2_candidate_rows)
@@ -1974,6 +2208,8 @@ def write_audits(
                 PPSR_V2_COMMITMENT_ABORT_STOP_SOURCE,
                 PPSR_V3_LAST_RESORT_STOP_SOURCE,
                 PPSR_V3_COMMITMENT_ABORT_STOP_SOURCE,
+                PPSR_V4_LAST_RESORT_STOP_SOURCE,
+                PPSR_V4_COMMITMENT_ABORT_STOP_SOURCE,
             ]
         ),
         "stop_source_counts": dict(Counter(str(row.get("stop_source") or "") for row in stop_rows)),
@@ -2007,15 +2243,17 @@ def write_audits(
     }
     write_json(data_dir / "skill_name_mapping_audit.json", mapping_audit)
 
+    leakage_scan = detect_privileged_online_leakage(decision_rows)
     leakage_audit = {
         "test_time_policy_uses_map_pose_goal_path": False,
-        "used_goal_distance_for_online_replan": False,
-        "used_shortest_path_for_online_replan": False,
-        "used_a_star_for_online_replan": False,
-        "used_oracle_waypoint_for_online_replan": False,
-        "used_evaluator_success_for_online_replan": False,
-        "used_map_cell_progress_for_online_replan": False,
-        "privileged_online_leakage": False,
+        "used_goal_distance_for_online_replan": bool(leakage_scan["used_goal_distance_for_online_replan"]),
+        "used_shortest_path_for_online_replan": bool(leakage_scan["used_shortest_path_for_online_replan"]),
+        "used_a_star_for_online_replan": bool(leakage_scan["used_a_star_for_online_replan"]),
+        "used_oracle_waypoint_for_online_replan": bool(leakage_scan["used_oracle_waypoint_for_online_replan"]),
+        "used_evaluator_success_for_online_replan": bool(leakage_scan["used_evaluator_success_for_online_replan"]),
+        "used_map_cell_progress_for_online_replan": bool(leakage_scan["used_map_cell_progress_for_online_replan"]),
+        "privileged_online_leakage": bool(leakage_scan["privileged_online_leakage"]),
+        "forbidden_online_findings": leakage_scan["forbidden_online_findings"],
         "policy_input_fields": [
             "instruction",
             "head_camera_image",
@@ -2027,6 +2265,21 @@ def write_audits(
         "decision_rows_with_privileged_policy_usage": sum(1 for row in decision_rows if row.get("privileged_policy_usage")),
     }
     write_json(data_dir / "privileged_leakage_audit.json", leakage_audit)
+    write_json(data_dir / "v4_privileged_leakage_audit.json", leakage_audit)
+
+    v4_decision_rows = [row for row in decision_rows if row.get("method") == PPSR_V4_METHOD_NAME]
+    real_backend_audit = {
+        "policy_backend": config.policy_backend,
+        "v4_decision_rows": len(v4_decision_rows),
+        "v4_real_navid_or_uninavid_rows": sum(1 for row in v4_decision_rows if row.get("real_navid_or_uninavid_used")),
+        "real_navid_or_uninavid_used": bool(
+            config.policy_backend in {"real_navid", "real_navid_visual_adapter"}
+            and v4_decision_rows
+            and all(row.get("real_navid_or_uninavid_used") for row in v4_decision_rows)
+        ),
+        "mock_backend_cannot_pass_final": True,
+    }
+    write_json(data_dir / "v4_real_backend_audit.json", real_backend_audit)
 
     risk_activation = {
         "gate_rows": len(gate_rows),
@@ -2064,6 +2317,14 @@ def write_audits(
     write_json(data_dir / "failure_reason_breakdown.json", failure_breakdown)
     write_json(data_dir / "ppsr_v2_failure_reason_breakdown.json", {PPSR_V2_METHOD_NAME: failure_breakdown.get(PPSR_V2_METHOD_NAME, {})})
     write_json(data_dir / "v3_failure_reason_breakdown.json", {PPSR_V3_METHOD_NAME: failure_breakdown.get(PPSR_V3_METHOD_NAME, {})})
+    write_json(data_dir / "v4_failure_reason_breakdown.json", {PPSR_V4_METHOD_NAME: failure_breakdown.get(PPSR_V4_METHOD_NAME, {})})
+    v4_stop_audit = build_v4_stop_audit(
+        method_summary=method_summary,
+        episode_rows=episode_rows,
+        decision_rows=decision_rows,
+        leakage_audit=leakage_audit,
+    )
+    write_json(data_dir / "v4_stop_audit.json", v4_stop_audit)
 
     visual_examples = []
     for row in dmps_candidate_rows[:20]:
@@ -2196,6 +2457,8 @@ def write_audits(
         "policy_internal_guard_vs_casa_replan_audit": policy_vs_casa,
         "skill_name_mapping_audit": mapping_audit,
         "privileged_leakage_audit": leakage_audit,
+        "v4_privileged_leakage_audit": leakage_audit,
+        "v4_real_backend_audit": real_backend_audit,
         "casa_gate_risk_activation_audit": risk_activation,
         "casa_vln_bridge_audit": bridge_audit,
         "visual_free_space_audit": visual_free_space_audit,
@@ -2204,12 +2467,18 @@ def write_audits(
         "anti_turn_loop_mask_audit": anti_turn_loop_mask_audit,
         "v3_loop_avoidance_audit": v3_loop_avoidance_audit,
         "v3_stop_source_audit": v3_stop_source_audit,
+        "v4_stop_audit": v4_stop_audit,
+        "failure_reason_breakdown": failure_breakdown,
         "readiness_progress_metrics": readiness_progress_metrics,
         "dmps_rollout_count": len(dmps_rollout_rows),
     }
 
 
-def draw_comparison_figures(figures_dir: Path, method_summary: list[dict[str, Any]]) -> None:
+def draw_comparison_figures(
+    figures_dir: Path,
+    method_summary: list[dict[str, Any]],
+    failure_breakdown: dict[str, dict[str, int]] | None = None,
+) -> None:
     from PIL import Image, ImageDraw
 
     figures_dir.mkdir(parents=True, exist_ok=True)
@@ -2242,6 +2511,8 @@ def draw_comparison_figures(figures_dir: Path, method_summary: list[dict[str, An
 
     bar_chart(figures_dir / "safe_success_comparison.png", "Safe success rate", "safe_success_rate", (40, 145, 85))
     bar_chart(figures_dir / "unsafe_comparison.png", "Unsafe violation rate", "unsafe_violation_rate", (190, 85, 55))
+    draw_stop_precision_recall(figures_dir / "stop_precision_recall.png", method_summary)
+    draw_failure_reason_breakdown(figures_dir / "failure_reason_breakdown.png", method_summary, failure_breakdown or {})
     bar_chart(figures_dir / "small_turn_recovery_reduction.png", "Small-turn recovery rate", "small_turn_recovery_rate", (130, 95, 180))
     bar_chart(figures_dir / "recovery_stuck_comparison.png", "Recovery stuck count", "dmps_recovery_stuck_count", (180, 120, 50))
     bar_chart(figures_dir / "readiness_progress_comparison.png", "Post-reject forward re-enabled rate", "post_reject_forward_reenabled_rate", (75, 130, 180))
@@ -2256,6 +2527,151 @@ def draw_comparison_figures(figures_dir: Path, method_summary: list[dict[str, An
     bar_chart(figures_dir / "post_reject_progress_comparison.png", "Mean post-reject progress", "mean_post_reject_progress", (75, 130, 180))
     bar_chart(figures_dir / "fallback_to_stop_comparison.png", "Fallback-to-stop rate", "fallback_to_stop_rate", (175, 120, 60))
     bar_chart(figures_dir / "dmps_replan_action_distribution.png", "Non-stop recovery rate", "non_stop_recovery_rate", (80, 150, 120))
+
+
+def draw_stop_precision_recall(path: Path, method_summary: list[dict[str, Any]]) -> None:
+    from PIL import Image, ImageDraw
+
+    width = max(900, 210 * max(1, len(method_summary)) + 120)
+    image = Image.new("RGB", (width, 440), (248, 248, 248))
+    draw = ImageDraw.Draw(image)
+    draw.text((30, 20), "Stop precision / recall", fill=(0, 0, 0))
+    baseline_y = 340
+    draw.line([(50, baseline_y), (width - 30, baseline_y)], fill=(120, 120, 120), width=1)
+    x = 70
+    for row in method_summary:
+        precision = float(row.get("stop_precision", 0.0))
+        recall = float(row.get("stop_recall", 0.0))
+        p_y = baseline_y - int(280 * precision)
+        r_y = baseline_y - int(280 * recall)
+        draw.rectangle([x, p_y, x + 45, baseline_y], fill=(55, 125, 190))
+        draw.rectangle([x + 55, r_y, x + 100, baseline_y], fill=(45, 150, 95))
+        draw.text((x, max(42, p_y - 18)), f"{precision:.2f}", fill=(0, 0, 0))
+        draw.text((x + 55, max(42, r_y - 18)), f"{recall:.2f}", fill=(0, 0, 0))
+        draw.text((x, 348), str(row["method"]).replace("vln_", "")[:18], fill=(0, 0, 0))
+        x += 205
+    draw.rectangle([width - 190, 40, width - 175, 55], fill=(55, 125, 190))
+    draw.text((width - 168, 39), "precision", fill=(0, 0, 0))
+    draw.rectangle([width - 190, 66, width - 175, 81], fill=(45, 150, 95))
+    draw.text((width - 168, 65), "recall", fill=(0, 0, 0))
+    image.save(path)
+
+
+def draw_failure_reason_breakdown(
+    path: Path,
+    method_summary: list[dict[str, Any]],
+    failure_breakdown: dict[str, dict[str, int]],
+) -> None:
+    from PIL import Image, ImageDraw
+
+    methods = [str(row["method"]) for row in method_summary]
+    reasons = sorted({reason for method in methods for reason in failure_breakdown.get(method, {})})
+    reasons = [reason for reason in reasons if reason != "success"][:8]
+    width = max(900, 210 * max(1, len(methods)) + 160)
+    image = Image.new("RGB", (width, 460), (248, 248, 248))
+    draw = ImageDraw.Draw(image)
+    draw.text((30, 20), "Failure reason breakdown", fill=(0, 0, 0))
+    colors = [
+        (190, 85, 55),
+        (75, 130, 180),
+        (175, 120, 60),
+        (130, 95, 180),
+        (70, 150, 120),
+        (150, 95, 95),
+        (95, 135, 90),
+        (130, 130, 130),
+    ]
+    x = 70
+    for method in methods:
+        counts = failure_breakdown.get(method, {})
+        total = max(1, sum(int(value) for value in counts.values()))
+        y = 340
+        for idx, reason in enumerate(reasons):
+            value = int(counts.get(reason, 0))
+            height = int(280 * value / total)
+            if height > 0:
+                draw.rectangle([x, y - height, x + 90, y], fill=colors[idx % len(colors)])
+                y -= height
+        draw.text((x, 348), method.replace("vln_", "")[:18], fill=(0, 0, 0))
+        x += 205
+    legend_x = width - 255
+    for idx, reason in enumerate(reasons[:8]):
+        y = 40 + idx * 24
+        draw.rectangle([legend_x, y, legend_x + 14, y + 14], fill=colors[idx % len(colors)])
+        draw.text((legend_x + 20, y - 1), reason[:28], fill=(0, 0, 0))
+    image.save(path)
+
+
+def write_v4_attempt_history(
+    *,
+    data_dir: Path,
+    config: CasaVlnRunnerConfig,
+    method_summary: list[dict[str, Any]],
+    audits: dict[str, Any],
+    final_status: str,
+) -> dict[str, Any]:
+    v4_summary = next((row for row in method_summary if row.get("method") == PPSR_V4_METHOD_NAME), {})
+    entry = {
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "eval_stage": config.eval_stage,
+        "v4_dev_iteration": config.v4_dev_iteration,
+        "locked_attempt_id": config.locked_attempt_id,
+        "methods": list(config.methods),
+        "heldout_episodes_per_method": config.heldout_episodes,
+        "max_steps": config.max_steps,
+        "seeds": list(config.seeds),
+        "gpu_uuid": config.navid_cuda_visible_devices,
+        "policy_backend": config.policy_backend,
+        "real_navid_or_uninavid_used": audits.get("v4_real_backend_audit", {}).get("real_navid_or_uninavid_used", False),
+        "final_status": final_status,
+        "v4_summary": v4_summary,
+        "v4_stop_audit": audits.get("v4_stop_audit", {}),
+        "v4_failure_reason_breakdown": audits.get("failure_reason_breakdown", {}).get(PPSR_V4_METHOD_NAME, {}),
+        "privileged_online_leakage": audits.get("privileged_leakage_audit", {}).get("privileged_online_leakage", False),
+    }
+    locked_path = data_dir / "v4_locked_attempts.json"
+    dev_path = data_dir / "v4_dev_iteration_history.json"
+    if config.eval_stage == "locked":
+        locked_history = _read_json_list(locked_path)
+        if config.postprocess_existing:
+            locked_history = [
+                row
+                for row in locked_history
+                if not (
+                    row.get("eval_stage") == config.eval_stage
+                    and row.get("locked_attempt_id") == config.locked_attempt_id
+                    and int(row.get("v4_dev_iteration", -1)) == int(config.v4_dev_iteration)
+                )
+            ]
+        write_json(locked_path, [*locked_history, entry])
+        if not dev_path.exists():
+            write_json(dev_path, [])
+    else:
+        dev_history = _read_json_list(dev_path)
+        if config.postprocess_existing:
+            dev_history = [
+                row
+                for row in dev_history
+                if not (
+                    row.get("eval_stage") == config.eval_stage
+                    and row.get("locked_attempt_id") == config.locked_attempt_id
+                    and int(row.get("v4_dev_iteration", -1)) == int(config.v4_dev_iteration)
+                )
+            ]
+        write_json(dev_path, [*dev_history, entry])
+        if not locked_path.exists():
+            write_json(locked_path, [])
+    return entry
+
+
+def _read_json_list(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return []
+    return data if isinstance(data, list) else []
 
 
 def _ppsr_v3_improvement_status(method_summary: list[dict[str, Any]]) -> bool:
@@ -2277,6 +2693,47 @@ def _ppsr_v3_improvement_status(method_summary: list[dict[str, Any]]) -> bool:
     )
 
 
+def _ppsr_v4_success60_status(method_summary: list[dict[str, Any]], audits: dict[str, Any]) -> str:
+    by_method = {row["method"]: row for row in method_summary}
+    v4 = by_method[PPSR_V4_METHOD_NAME]
+    v3 = by_method.get(PPSR_V3_METHOD_NAME)
+    dmps = by_method.get(DMPS_METHOD_NAME)
+    v4_stop = audits.get("v4_stop_audit", {})
+    backend = audits.get("v4_real_backend_audit", {})
+    leakage = audits.get("privileged_leakage_audit", {})
+
+    if bool(leakage.get("privileged_online_leakage", False)):
+        return "FAILED_PRIVILEGED_LEAKAGE"
+    if not bool(backend.get("real_navid_or_uninavid_used", False)):
+        return "PARTIAL_BLOCKED_ENGINEERING"
+    if int(v4.get("unsafe_violation_count", 0)) != 0 or float(v4.get("unsafe_violation_rate", 0.0)) != 0.0:
+        return "FAILED_UNSAFE_NOT_ZERO"
+    if int(v4.get("safety_stop_success_leakage_count", 0)) != 0 or int(
+        v4.get("recovery_stop_success_leakage_count", 0)
+    ) != 0:
+        return "FAILED_STOP_LEAKAGE"
+    if int(v4_stop.get("safety_stop_success_leakage_count", 0)) != 0 or int(
+        v4_stop.get("recovery_stop_success_leakage_count", 0)
+    ) != 0:
+        return "FAILED_STOP_LEAKAGE"
+    if v3 is None or dmps is None:
+        return "PARTIAL_BLOCKED_ENGINEERING"
+    safe_success_rate = float(v4.get("safe_success_rate", 0.0))
+    if safe_success_rate < 0.60:
+        return "FAILED_SUCCESS_BELOW_60"
+    if safe_success_rate <= float(v3.get("safe_success_rate", 0.0)):
+        return "FAILED_SUCCESS_BELOW_60"
+    if safe_success_rate <= float(dmps.get("safe_success_rate", 0.0)):
+        return "FAILED_SUCCESS_BELOW_60"
+    if float(v4.get("stop_precision", 0.0)) < 0.80:
+        return "FAILED_SUCCESS_BELOW_60"
+    if float(v4.get("stop_recall", 0.0)) < 0.80:
+        return "FAILED_SUCCESS_BELOW_60"
+    if float(v4.get("premature_stop_rate", 1.0)) > 0.10:
+        return "FAILED_SUCCESS_BELOW_60"
+    return "PASS_ZERO_UNSAFE_SUCCESS60"
+
+
 def audit_final_status(method_summary: list[dict[str, Any]], audits: dict[str, Any]) -> str:
     by_method = {row["method"]: row for row in method_summary}
     if not audits["casa_vln_bridge_audit"]["loaded_real_casa_artifacts"]:
@@ -2296,7 +2753,12 @@ def audit_final_status(method_summary: list[dict[str, Any]], audits: dict[str, A
     ):
         return "FAILED_PRIVILEGED_LEAKAGE"
     if audits["stop_source_audit"]["casa_stop_rows_counted_as_policy_stop"] != 0:
+        if PPSR_V4_METHOD_NAME in by_method:
+            return "FAILED_STOP_LEAKAGE"
         return "FAILED_EVALUATION_BUT_AUDITABLE"
+
+    if PPSR_V4_METHOD_NAME in by_method:
+        return _ppsr_v4_success60_status(method_summary, audits)
 
     if PPSR_V3_METHOD_NAME in by_method:
         v3 = by_method[PPSR_V3_METHOD_NAME]
@@ -2395,9 +2857,10 @@ def comparison_metrics(method_summary: list[dict[str, Any]]) -> dict[str, float 
     dmps = by_method.get(DMPS_METHOD_NAME)
     ppsr_v2 = by_method.get(PPSR_V2_METHOD_NAME)
     ppsr_v3 = by_method.get(PPSR_V3_METHOD_NAME)
+    ppsr_v4 = by_method.get(PPSR_V4_METHOD_NAME)
     vln = by_method.get("vln_only")
     naive = by_method.get("vln_casa_replan")
-    target = ppsr_v3 or ppsr_v2 or dmps
+    target = ppsr_v4 or ppsr_v3 or ppsr_v2 or dmps
     if target is None:
         return {}
 
@@ -2450,6 +2913,17 @@ def comparison_metrics(method_summary: list[dict[str, Any]]) -> dict[str, float 
                 ),
             }
         )
+    if ppsr_v4 is not None:
+        metrics.update(
+            {
+                "ppsr_v4_safe_success_delta_vs_ppsr_v3": delta(ppsr_v4, "safe_success_rate", ppsr_v3),
+                "ppsr_v4_safe_success_delta_vs_dmps": delta(ppsr_v4, "safe_success_rate", dmps),
+                "ppsr_v4_unsafe_delta_vs_ppsr_v3": delta(ppsr_v4, "unsafe_violation_rate", ppsr_v3),
+                "ppsr_v4_stop_precision": float(ppsr_v4.get("stop_precision", 0.0)),
+                "ppsr_v4_stop_recall": float(ppsr_v4.get("stop_recall", 0.0)),
+                "ppsr_v4_premature_stop_rate": float(ppsr_v4.get("premature_stop_rate", 0.0)),
+            }
+        )
     return metrics
 
 
@@ -2488,9 +2962,13 @@ def write_report(
         f"- ppsr_v3_horizon: `{config.ppsr_v3_horizon}`",
         f"- ppsr_v3_max_execute_steps: `{config.ppsr_v3_max_execute_steps}`",
         f"- ppsr_v3_safety_margin: `{config.ppsr_v3_safety_margin}`",
+        f"- ppsr_v4_horizon: `{config.ppsr_v4_horizon}`",
+        f"- ppsr_v4_max_execute_steps: `{config.ppsr_v4_max_execute_steps}`",
+        f"- ppsr_v4_safety_margin: `{config.ppsr_v4_safety_margin}`",
         f"- method_alias: `{DMPS_ALIAS}` == `{DMPS_METHOD_NAME}`",
         f"- ppsr_v2_aliases: `{','.join(PPSR_V2_ALIASES)}` == `{PPSR_V2_METHOD_NAME}`",
         f"- ppsr_v3_aliases: `{','.join(PPSR_V3_ALIASES)}` == `{PPSR_V3_METHOD_NAME}`",
+        f"- ppsr_v4_aliases: `{','.join(PPSR_V4_ALIASES)}` == `{PPSR_V4_METHOD_NAME}`",
         f"- phase4_root: `{config.phase4_root}`",
         f"- phase5_root: `{config.phase5_root}`",
         "",
@@ -2560,6 +3038,18 @@ def write_report(
             "6. Safety/recovery stops are non-success stops and leakage counts must remain zero.",
             "7. No learned recovery ranker is used in this run.",
             "",
+            "## PPSR-v4 Zero-Unsafe Success60 Audit Answers",
+            "",
+            "1. PPSR-v4 method name: `vln_ppsr_v4_zero_unsafe_success60`; it is registered independently of v1/v2/v3.",
+            "2. A non-privileged policy stop verifier runs only for v4 before CASA gating.",
+            "3. The verifier uses instruction text, head-camera frame/history, previous actions/status, visual target cues, and NaVid metadata.",
+            "4. The verifier does not use goal distance, evaluator success, A*, oracle waypoint, global shortest path, or map-cell progress.",
+            "5. Premature policy stops are filtered unless visual/language/history evidence verifies the stop.",
+            "6. Late-stop recovery can promote a verified near-target decision into `policy_internal_guard` stop.",
+            "7. v4 can execute a third safe-rolled-out recovery sequence step; v3 behavior remains capped at two.",
+            "8. Required v4 stop metrics are written to `data/v4_stop_audit.json`.",
+            "9. Final v4 PASS is only `PASS_ZERO_UNSAFE_SUCCESS60` and requires zero unsafe, safe_success_rate >= 0.60, stop precision/recall >= 0.80, premature_stop_rate <= 0.10, no stop leakage, no privileged leakage, and real NaVid rows.",
+            "",
             "## Stop Source Rule",
             "",
             "CASA/DMPS safety stops are not counted as policy-issued task success. "
@@ -2575,9 +3065,267 @@ def write_report(
         lines.append(f"- `{path}`")
     (output_dir / "ppsr_v2_escape_macro_report.md").write_text("\n".join(lines) + "\n")
     (output_dir / "ppsr_v3_task_return_report.md").write_text("\n".join(lines) + "\n")
+    (output_dir / "ppsr_v4_zero_unsafe_success60_report.md").write_text("\n".join(lines) + "\n")
     (output_dir / "dmps_mpc_cbf_progress_report.md").write_text("\n".join(lines) + "\n")
     (output_dir / "casa_vln_safety_report.md").write_text("\n".join(lines) + "\n")
     (output_dir / "README.md").write_text("\n".join(lines[:22]) + "\n")
+
+
+def _cell_from_json(value: Any) -> tuple[int, int] | None:
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    return (int(value[0]), int(value[1]))
+
+
+def _teacher_task_from_dict(data: dict[str, Any], *, default_max_steps: int) -> TeacherTask:
+    start_cell = _cell_from_json(data.get("start_cell"))
+    goal_cell = _cell_from_json(data.get("goal_cell"))
+    path_cells = tuple(
+        cell
+        for cell in (_cell_from_json(value) for value in data.get("path_cells", []))
+        if cell is not None
+    )
+    stop_xy_data = data.get("stop_xy")
+    stop_xy = (
+        (float(stop_xy_data[0]), float(stop_xy_data[1]))
+        if isinstance(stop_xy_data, (list, tuple)) and len(stop_xy_data) == 2
+        else None
+    )
+    return TeacherTask(
+        episode_id=str(data["episode_id"]),
+        instruction=str(data["instruction"]),
+        start_xy=(float(data["start_xy"][0]), float(data["start_xy"][1])),
+        goal_xy=(float(data["goal_xy"][0]), float(data["goal_xy"][1])),
+        start_yaw_deg=float(data["start_yaw_deg"]),
+        success_radius=float(data.get("success_radius", 0.8)),
+        max_steps=int(data.get("max_steps", default_max_steps)),
+        visual_cues=[str(item) for item in data.get("visual_cues", [])],
+        split=str(data.get("split", "heldout")),
+        start_cell=start_cell,
+        goal_cell=goal_cell,
+        route_actions=tuple(str(action) for action in data.get("route_actions", [])),
+        path_cells=path_cells,
+        stop_xy=stop_xy,
+    )
+
+
+def _read_json_dict(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def reconstruct_episode_metrics_from_logs(
+    *,
+    config: CasaVlnRunnerConfig,
+    dirs: dict[str, Path],
+) -> list[dict[str, Any]]:
+    split_path = dirs["data"] / "eval_splits.json"
+    split_data = _read_json_dict(split_path)
+    if split_data is None:
+        raise FileNotFoundError(f"postprocess_existing requires readable split file: {split_path}")
+    heldout_data = split_data.get("heldout_episodes", [])
+    if not isinstance(heldout_data, list) or len(heldout_data) < config.heldout_episodes:
+        raise RuntimeError(
+            "postprocess_existing split/log mismatch: "
+            f"requested {config.heldout_episodes} heldout episodes, found {len(heldout_data) if isinstance(heldout_data, list) else 0}"
+        )
+    heldout_tasks = [
+        _teacher_task_from_dict(dict(row), default_max_steps=config.max_steps)
+        for row in heldout_data[: config.heldout_episodes]
+    ]
+    maze = MazeMap.from_metadata(config.map_metadata)
+    per_episode = dirs["data"] / "per_episode"
+    episode_metrics: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for method in config.methods:
+        for task in heldout_tasks:
+            prefix = f"{method}_{task.episode_id}"
+            decision_log = per_episode / f"{prefix}_decision_log.jsonl"
+            gate_log = per_episode / f"{prefix}_gate_decisions.jsonl"
+            replan_log = per_episode / f"{prefix}_replan_log.jsonl"
+            trajectory_log = per_episode / f"{prefix}_trajectory_log.jsonl"
+            required_paths = [decision_log, trajectory_log]
+            missing.extend(str(path) for path in required_paths if not path.exists())
+            if any(not path.exists() for path in required_paths):
+                continue
+            decision_records = collect_jsonl_records([decision_log])
+            trajectory_rows = collect_jsonl_records([trajectory_log])
+            if not decision_records or not trajectory_rows:
+                missing.append(f"{prefix}: empty decision or trajectory log")
+                continue
+            frames_dir = dirs["frames"] / method / task.episode_id
+            video_path = dirs["videos"] / method / f"{task.episode_id}.mp4"
+            video_paths = [video_path] if video_path.exists() else []
+            episode_metrics.append(
+                summarize_casa_episode(
+                    method=method,
+                    task=task,
+                    maze=maze,
+                    decision_records=decision_records,
+                    trajectory_rows=trajectory_rows,
+                    video_paths=video_paths,
+                    frames_dir=frames_dir,
+                    decision_log=decision_log,
+                    gate_log=gate_log,
+                    replan_log=replan_log,
+                    trajectory_log=trajectory_log,
+                )
+            )
+    if missing:
+        preview = "\n".join(missing[:20])
+        raise FileNotFoundError(f"postprocess_existing missing logs:\n{preview}")
+    expected = len(config.methods) * config.heldout_episodes
+    if len(episode_metrics) != expected:
+        raise RuntimeError(f"postprocess_existing reconstructed {len(episode_metrics)} episodes, expected {expected}")
+    return episode_metrics
+
+
+def postprocess_existing_run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
+    start_time = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    assert_no_privileged_inference_schema()
+    verify_casa_artifacts(config)
+    dirs = ensure_layout(config.output_dir)
+    write_repo_audit(dirs["notes"] / "repo_audit.md")
+    bridge = CasaVlnBridge(phase4_root=config.phase4_root, phase5_root=config.phase5_root, gate_method=config.gate_method)
+    episode_metrics = reconstruct_episode_metrics_from_logs(config=config, dirs=dirs)
+    (
+        decision_rows,
+        gate_rows,
+        replan_rows,
+        _trajectory_rows,
+        dmps_candidate_rows,
+        dmps_selected_rows,
+        dmps_rollout_rows,
+        progress_event_rows,
+    ) = write_global_logs(dirs["data"], episode_metrics)
+    by_method = {method: [row for row in episode_metrics if row["method"] == method] for method in config.methods}
+    method_summary = [aggregate_method(rows) for rows in by_method.values()]
+    write_table_csv(dirs["data"] / "method_summary.csv", method_summary)
+    write_table_csv(dirs["data"] / "ppsr_v2_method_summary.csv", [row for row in method_summary if row["method"] == PPSR_V2_METHOD_NAME])
+    write_table_csv(dirs["data"] / "v3_method_summary.csv", [row for row in method_summary if row["method"] == PPSR_V3_METHOD_NAME])
+    write_table_csv(dirs["data"] / "v4_method_summary.csv", [row for row in method_summary if row["method"] == PPSR_V4_METHOD_NAME])
+    write_json(dirs["data"] / "method_summary.json", method_summary)
+    audits = write_audits(
+        data_dir=dirs["data"],
+        config=config,
+        bridge=bridge,
+        decision_rows=decision_rows,
+        gate_rows=gate_rows,
+        replan_rows=replan_rows,
+        dmps_candidate_rows=dmps_candidate_rows,
+        dmps_selected_rows=dmps_selected_rows,
+        dmps_rollout_rows=dmps_rollout_rows,
+        progress_event_rows=progress_event_rows,
+        method_summary=method_summary,
+    )
+    draw_comparison_figures(dirs["figures"], method_summary, audits.get("failure_reason_breakdown", {}))
+    final_status = audit_final_status(method_summary, audits)
+    v4_attempt_entry = write_v4_attempt_history(
+        data_dir=dirs["data"],
+        config=config,
+        method_summary=method_summary,
+        audits=audits,
+        final_status=final_status,
+    )
+    video_paths = [path for episode in episode_metrics for path in episode.get("video_paths", [])]
+    backend_probe = _read_json_dict(dirs["logs"] / "real_navid_backend" / "backend_probe.json")
+    report = {
+        "created_at": start_time,
+        "start_time": start_time,
+        "end_time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "git_commit": _git_text(["rev-parse", "HEAD"]),
+        "git_status_short": _git_text(["status", "--short"]),
+        "final_status": final_status,
+        "output_dir": str(config.output_dir),
+        "scene_xml": str(config.scene_xml),
+        "runner_script": "gear_sonic/scripts/casa_run_vln_safety_online.py",
+        "methods": list(config.methods),
+        "heldout_episodes_per_method": config.heldout_episodes,
+        "seeds": list(config.seeds),
+        "max_steps": config.max_steps,
+        "dataset_path": str(dirs["data"] / "auto_vln_dataset.jsonl"),
+        "adapter_path": str(dirs["models"] / "visual_action_adapter.json"),
+        "policy_backend": config.policy_backend,
+        "navid_cuda_visible_devices": config.navid_cuda_visible_devices,
+        "gpu_uuid": config.navid_cuda_visible_devices,
+        "eval_stage": config.eval_stage,
+        "v4_dev_iteration": config.v4_dev_iteration,
+        "locked_attempt_id": config.locked_attempt_id,
+        "v4_attempt_entry": v4_attempt_entry,
+        "policy_name": "postprocess_existing_real_navid_visual_adapter",
+        "real_navid_or_uninavid_used": audits["v4_real_backend_audit"]["real_navid_or_uninavid_used"],
+        "real_navid_backend_probe": backend_probe,
+        "postprocess_existing_logs": True,
+        "phase4_root": str(config.phase4_root),
+        "phase5_root": str(config.phase5_root),
+        "casa_gate_method": config.gate_method,
+        "previous_casa_vln_result_path": str(config.previous_casa_vln_result_path),
+        "dmps_horizon": config.dmps_horizon,
+        "safety_margin": config.safety_margin,
+        "ppsr_v2_horizon_default": config.ppsr_v2_horizon_default,
+        "ppsr_v2_horizon_stuck": config.ppsr_v2_horizon_stuck,
+        "ppsr_v2_max_commit_steps": config.ppsr_v2_max_commit_steps,
+        "ppsr_v2_safety_margin": config.ppsr_v2_safety_margin,
+        "ppsr_v2_score_config": str(config.ppsr_v2_score_config) if config.ppsr_v2_score_config else None,
+        "ppsr_v3_horizon": config.ppsr_v3_horizon,
+        "ppsr_v3_max_execute_steps": config.ppsr_v3_max_execute_steps,
+        "ppsr_v3_safety_margin": config.ppsr_v3_safety_margin,
+        "ppsr_v3_score_config": str(config.ppsr_v3_score_config) if config.ppsr_v3_score_config else None,
+        "ppsr_v4_horizon": config.ppsr_v4_horizon,
+        "ppsr_v4_max_execute_steps": config.ppsr_v4_max_execute_steps,
+        "ppsr_v4_safety_margin": config.ppsr_v4_safety_margin,
+        "ppsr_v4_stop_verifier_config": asdict(
+            PpsrV4StopVerifierConfig(
+                strong_visual_ratio=config.ppsr_v4_strong_visual_ratio,
+                strong_visual_bbox_area=config.ppsr_v4_strong_visual_bbox_area,
+                policy_stop_visual_ratio=config.ppsr_v4_policy_stop_visual_ratio,
+                route_complete_visual_ratio=config.ppsr_v4_route_complete_visual_ratio,
+                late_recovery_visual_ratio=config.ppsr_v4_late_recovery_visual_ratio,
+            )
+        ),
+        "score_weights": config.score_weights or DEFAULT_SCORE_WEIGHTS,
+        "ppsr_v2_score_weights": {**PPSR_V2_SCORE_WEIGHTS, **(config.score_weights or {})},
+        "ppsr_v3_score_weights": {**PPSR_V3_SCORE_WEIGHTS, **(config.score_weights or {})},
+        "ppsr_v4_score_weights": {**PPSR_V4_SCORE_WEIGHTS, **(config.score_weights or {})},
+        "learned_ranker_used": False,
+        "learned_ranker_training_data_count": 0,
+        "learned_ranker_training_command": None,
+        "learned_ranker_held_out_split": None,
+        "visual_free_space_available": audits["visual_free_space_audit"]["visual_free_space_score_available"],
+        "used_goal_distance_for_online_replan": False,
+        "used_shortest_path_for_online_replan": False,
+        "used_a_star_for_online_replan": False,
+        "used_oracle_waypoint_for_online_replan": False,
+        "used_evaluator_success_for_online_replan": False,
+        "used_map_cell_progress_for_online_replan": False,
+        "privileged_online_leakage": audits["privileged_leakage_audit"]["privileged_online_leakage"],
+        "python_executable": os.sys.executable,
+        "risk_source": "real_casa_critic",
+        "method_summary": method_summary,
+        "comparisons": comparison_metrics(method_summary),
+        "episodes": episode_metrics,
+        "video_paths": video_paths,
+        "videos_path": str(dirs["videos"]),
+        "frames_path": str(dirs["frames"]),
+        "audits": audits,
+        "large_outputs_not_in_git": True,
+    }
+    write_json(config.output_dir / "run_manifest.json", report)
+    write_report(
+        output_dir=config.output_dir,
+        config=config,
+        method_summary=method_summary,
+        final_status=final_status,
+        report=report,
+    )
+    return report
 
 
 def run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
@@ -2711,6 +3459,7 @@ def run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
     write_table_csv(dirs["data"] / "method_summary.csv", method_summary)
     write_table_csv(dirs["data"] / "ppsr_v2_method_summary.csv", [row for row in method_summary if row["method"] == PPSR_V2_METHOD_NAME])
     write_table_csv(dirs["data"] / "v3_method_summary.csv", [row for row in method_summary if row["method"] == PPSR_V3_METHOD_NAME])
+    write_table_csv(dirs["data"] / "v4_method_summary.csv", [row for row in method_summary if row["method"] == PPSR_V4_METHOD_NAME])
     write_json(dirs["data"] / "method_summary.json", method_summary)
     audits = write_audits(
         data_dir=dirs["data"],
@@ -2725,8 +3474,15 @@ def run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
         progress_event_rows=progress_event_rows,
         method_summary=method_summary,
     )
-    draw_comparison_figures(dirs["figures"], method_summary)
+    draw_comparison_figures(dirs["figures"], method_summary, audits.get("failure_reason_breakdown", {}))
     final_status = audit_final_status(method_summary, audits)
+    v4_attempt_entry = write_v4_attempt_history(
+        data_dir=dirs["data"],
+        config=config,
+        method_summary=method_summary,
+        audits=audits,
+        final_status=final_status,
+    )
     video_paths = [path for episode in episode_metrics for path in episode.get("video_paths", [])]
     report = {
         "created_at": start_time,
@@ -2747,6 +3503,10 @@ def run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
         "policy_backend": config.policy_backend,
         "navid_cuda_visible_devices": config.navid_cuda_visible_devices,
         "gpu_uuid": config.navid_cuda_visible_devices,
+        "eval_stage": config.eval_stage,
+        "v4_dev_iteration": config.v4_dev_iteration,
+        "locked_attempt_id": config.locked_attempt_id,
+        "v4_attempt_entry": v4_attempt_entry,
         "policy_name": policy.name,
         "real_navid_or_uninavid_used": bool(
             config.policy_backend in {"real_navid", "real_navid_visual_adapter"}
@@ -2769,9 +3529,22 @@ def run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
         "ppsr_v3_max_execute_steps": config.ppsr_v3_max_execute_steps,
         "ppsr_v3_safety_margin": config.ppsr_v3_safety_margin,
         "ppsr_v3_score_config": str(config.ppsr_v3_score_config) if config.ppsr_v3_score_config else None,
+        "ppsr_v4_horizon": config.ppsr_v4_horizon,
+        "ppsr_v4_max_execute_steps": config.ppsr_v4_max_execute_steps,
+        "ppsr_v4_safety_margin": config.ppsr_v4_safety_margin,
+        "ppsr_v4_stop_verifier_config": asdict(
+            PpsrV4StopVerifierConfig(
+                strong_visual_ratio=config.ppsr_v4_strong_visual_ratio,
+                strong_visual_bbox_area=config.ppsr_v4_strong_visual_bbox_area,
+                policy_stop_visual_ratio=config.ppsr_v4_policy_stop_visual_ratio,
+                route_complete_visual_ratio=config.ppsr_v4_route_complete_visual_ratio,
+                late_recovery_visual_ratio=config.ppsr_v4_late_recovery_visual_ratio,
+            )
+        ),
         "score_weights": config.score_weights or DEFAULT_SCORE_WEIGHTS,
         "ppsr_v2_score_weights": {**PPSR_V2_SCORE_WEIGHTS, **(config.score_weights or {})},
         "ppsr_v3_score_weights": {**PPSR_V3_SCORE_WEIGHTS, **(config.score_weights or {})},
+        "ppsr_v4_score_weights": {**PPSR_V4_SCORE_WEIGHTS, **(config.score_weights or {})},
         "learned_ranker_used": False,
         "learned_ranker_training_data_count": 0,
         "learned_ranker_training_command": None,
@@ -2879,10 +3652,22 @@ def parse_args(argv: list[str] | None = None) -> CasaVlnRunnerConfig:
     parser.add_argument("--ppsr-v3-max-execute-steps", type=int, default=2)
     parser.add_argument("--ppsr-v3-safety-margin", type=float, default=0.05)
     parser.add_argument("--ppsr-v3-score-config", type=Path, default=None)
+    parser.add_argument("--ppsr-v4-horizon", type=int, default=5)
+    parser.add_argument("--ppsr-v4-max-execute-steps", type=int, default=3)
+    parser.add_argument("--ppsr-v4-safety-margin", type=float, default=0.06)
+    parser.add_argument("--ppsr-v4-strong-visual-ratio", type=float, default=0.65)
+    parser.add_argument("--ppsr-v4-strong-visual-bbox-area", type=float, default=0.75)
+    parser.add_argument("--ppsr-v4-policy-stop-visual-ratio", type=float, default=0.30)
+    parser.add_argument("--ppsr-v4-route-complete-visual-ratio", type=float, default=0.65)
+    parser.add_argument("--ppsr-v4-late-recovery-visual-ratio", type=float, default=0.45)
+    parser.add_argument("--eval-stage", choices=["dev", "locked"], default="dev")
+    parser.add_argument("--v4-dev-iteration", type=int, default=0)
+    parser.add_argument("--locked-attempt-id", default="")
     parser.add_argument("--previous-casa-vln-result-path", type=Path, default=Path("/mnt/data/students/lph/recording/casa_vln_safety_locked_real_navid_20260611_190121"))
     parser.add_argument("--record-video", action="store_true", default=True)
     parser.add_argument("--dry-run", default="false")
     parser.add_argument("--strict", action="store_true")
+    parser.add_argument("--postprocess-existing", action="store_true")
     args = parser.parse_args(argv)
     methods_arg = args.method if args.method is not None else args.methods
     seeds = parse_seeds(args.seeds)
@@ -2928,18 +3713,31 @@ def parse_args(argv: list[str] | None = None) -> CasaVlnRunnerConfig:
         ppsr_v3_max_execute_steps=args.ppsr_v3_max_execute_steps,
         ppsr_v3_safety_margin=args.ppsr_v3_safety_margin,
         ppsr_v3_score_config=args.ppsr_v3_score_config,
+        ppsr_v4_horizon=args.ppsr_v4_horizon,
+        ppsr_v4_max_execute_steps=args.ppsr_v4_max_execute_steps,
+        ppsr_v4_safety_margin=args.ppsr_v4_safety_margin,
+        ppsr_v4_strong_visual_ratio=args.ppsr_v4_strong_visual_ratio,
+        ppsr_v4_strong_visual_bbox_area=args.ppsr_v4_strong_visual_bbox_area,
+        ppsr_v4_policy_stop_visual_ratio=args.ppsr_v4_policy_stop_visual_ratio,
+        ppsr_v4_route_complete_visual_ratio=args.ppsr_v4_route_complete_visual_ratio,
+        ppsr_v4_late_recovery_visual_ratio=args.ppsr_v4_late_recovery_visual_ratio,
         progress_score_config=args.progress_score_config,
         score_weights=load_score_weights(args.ppsr_v3_score_config or args.ppsr_v2_score_config or args.progress_score_config),
         previous_casa_vln_result_path=args.previous_casa_vln_result_path,
         seeds=seeds,
+        eval_stage=args.eval_stage,
+        v4_dev_iteration=args.v4_dev_iteration,
+        locked_attempt_id=args.locked_attempt_id,
         record_video=args.record_video,
         dry_run=str(args.dry_run).lower() in {"1", "true", "yes"},
         strict=args.strict,
+        postprocess_existing=args.postprocess_existing,
     )
 
 
 def main(argv: list[str] | None = None) -> None:
-    report = run(parse_args(argv))
+    config = parse_args(argv)
+    report = postprocess_existing_run(config) if config.postprocess_existing else run(config)
     print(json.dumps(report, indent=2, sort_keys=True))
     print("CASA-VLN safety package written to:")
     print(report["output_dir"])

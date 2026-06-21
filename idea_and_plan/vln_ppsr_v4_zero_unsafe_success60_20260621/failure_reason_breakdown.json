@@ -1,0 +1,19 @@
+{
+  "vln_dmps_mpc_cbf_progress": {
+    "missing_policy_stop": 32,
+    "success": 18
+  },
+  "vln_only": {
+    "missing_policy_stop": 30,
+    "success": 20
+  },
+  "vln_ppsr_v3_task_return_replan": {
+    "missing_policy_stop": 39,
+    "success": 11
+  },
+  "vln_ppsr_v4_zero_unsafe_success60": {
+    "missing_policy_stop": 19,
+    "stop_outside_goal_radius": 1,
+    "success": 30
+  }
+}
