@@ -44,9 +44,12 @@ from .dmps_mpc_cbf_replan import (
     PPSR_V3_METHOD_NAME,
     PPSR_V3_SCORE_WEIGHTS,
     PPSR_V4_ALIASES,
+    PPSR_V4_ABLATE_NO_TASK_RETURN_REPLAN_METHOD_NAME,
+    PPSR_V4_ABLATION_METHODS,
     PPSR_V4_COMMITMENT_ABORT_STOP_SOURCE,
     PPSR_V4_LAST_RESORT_STOP_SOURCE,
     PPSR_V4_METHOD_NAME,
+    PPSR_V4_METHODS,
     PPSR_V4_SCORE_WEIGHTS,
     candidate_scores_to_rows,
     is_dmps_method,
@@ -54,6 +57,7 @@ from .dmps_mpc_cbf_replan import (
     is_ppsr_v3_method,
     is_ppsr_v4_method,
     normalize_dmps_method,
+    ppsr_v4_task_return_replan_enabled,
     rollout_candidate_sequence,
     select_dmps_replan,
     select_ppsr_v2_replan,
@@ -72,6 +76,8 @@ from .ppsr_v4_stop import (
     apply_ppsr_v4_stop_verifier,
     build_v4_stop_audit,
     detect_privileged_online_leakage,
+    ppsr_v4_ablation_variant,
+    ppsr_v4_stop_verifier_config_for_method,
 )
 from .progress_monitor import ProgressMonitor
 from .no_casa_runner import (
@@ -114,6 +120,7 @@ METHODS = (
     PPSR_V2_METHOD_NAME,
     PPSR_V3_METHOD_NAME,
     PPSR_V4_METHOD_NAME,
+    *PPSR_V4_ABLATION_METHODS,
 )
 DECISION_LOG_COLUMNS = [
     "method",
@@ -400,7 +407,8 @@ def run_episode_with_method(
             decision = apply_ppsr_v4_stop_verifier(
                 obs=obs,
                 decision=decision,
-                config=PpsrV4StopVerifierConfig(
+                config=ppsr_v4_stop_verifier_config_for_method(
+                    method,
                     strong_visual_ratio=config.ppsr_v4_strong_visual_ratio,
                     strong_visual_bbox_area=config.ppsr_v4_strong_visual_bbox_area,
                     policy_stop_visual_ratio=config.ppsr_v4_policy_stop_visual_ratio,
@@ -409,6 +417,18 @@ def run_episode_with_method(
                 ),
             )
         metadata = dict(decision.metadata or {})
+        ppsr_v4_family = is_ppsr_v4_method(method)
+        ppsr_v4_variant = ppsr_v4_ablation_variant(method) if ppsr_v4_family else ""
+        ppsr_v4_task_return_enabled = bool(ppsr_v4_family and ppsr_v4_task_return_replan_enabled(method))
+        if ppsr_v4_family:
+            metadata.update(
+                {
+                    "ppsr_v4_ablation_variant": ppsr_v4_variant,
+                    "ppsr_v4_task_return_replan_enabled": ppsr_v4_task_return_enabled,
+                    "ppsr_v4_task_return_replan_disabled": False,
+                    "ppsr_v4_task_return_replan_applied": False,
+                }
+            )
         internal_guard_applied, internal_guard_names = policy_internal_guard_summary(metadata)
         vln_raw_action = metadata.get("real_navid_parsed_action") or _raw_action_from_decision(decision)
         action = decision.action
@@ -480,8 +500,16 @@ def run_episode_with_method(
         ppsr_v4_fourth_step_aborted = False
         ppsr_v4_fourth_skill_status = ""
         ppsr_v4_stop_verifier_applied = bool(metadata.get("ppsr_v4_stop_verifier_applied", False))
+        ppsr_v4_stop_verifier_bypassed = bool(metadata.get("ppsr_v4_stop_verifier_bypassed", False))
         ppsr_v4_premature_stop_suppressed = bool(metadata.get("ppsr_v4_premature_stop_suppressed", False))
+        ppsr_v4_late_stop_recovery_candidate = bool(metadata.get("ppsr_v4_late_stop_recovery_candidate", False))
+        ppsr_v4_late_stop_recovery_disabled = bool(metadata.get("ppsr_v4_late_stop_recovery_disabled", False))
         ppsr_v4_late_stop_recovery_applied = bool(metadata.get("ppsr_v4_late_stop_recovery_applied", False))
+        ppsr_v4_visual_goal_tracker_candidate = bool(metadata.get("ppsr_v4_visual_goal_tracker_candidate_action"))
+        ppsr_v4_visual_goal_tracker_disabled = bool(metadata.get("ppsr_v4_visual_goal_tracker_disabled", False))
+        ppsr_v4_visual_goal_tracker_applied = bool(metadata.get("ppsr_v4_visual_goal_tracker_applied", False))
+        ppsr_v4_task_return_replan_applied = False
+        ppsr_v4_task_return_replan_disabled = False
         non_stop_recovery_selected = False
         all_non_stop_candidates_infeasible = False
         rejected_candidate_skill_was_executed = False
@@ -639,6 +667,72 @@ def run_episode_with_method(
                             }
                         )
                         dmps_rollout_rows.append(rollout_row)
+                elif ppsr_v4_family and not ppsr_v4_task_return_enabled:
+                    dmps_selection = select_dmps_replan(
+                        bridge=bridge,
+                        pose=pose_before,
+                        maze=env.maze,
+                        robot_radius=env.robot_radius,
+                        nominal_action=action,
+                        image_path=frame_path,
+                        progress_monitor=progress_monitor,
+                        step_idx=step_idx,
+                        horizon=config.dmps_horizon,
+                        safety_margin=config.ppsr_v4_safety_margin,
+                        score_weights=config.score_weights,
+                    )
+                    dmps_replan_applied = True
+                    casa_replan_applied = True
+                    ppsr_v4_task_return_replan_disabled = True
+                    metadata["ppsr_v4_task_return_replan_disabled"] = True
+                    selected_sequence = dmps_selection.selected_sequence
+                    first_action = selected_sequence.actions[0]
+                    final_action_text = first_action
+                    final_skill = selected_sequence.skills[0]
+                    replan_selected_action = first_action
+                    replan_selected_skill = final_skill.name
+                    dmps_selected_sequence = json.dumps(list(selected_sequence.actions))
+                    all_non_stop_candidates_infeasible = dmps_selection.all_non_stop_candidates_infeasible
+                    non_stop_recovery_selected = first_action != "stop_as_last_resort"
+                    dmps_recovery_stuck = (
+                        len(progress_monitor.state.recent_selected_recoveries) >= config.max_consecutive_dmps_recovery_steps
+                        and bool(progress_monitor.state.recent_selected_recoveries)
+                    )
+                    if selected_sequence.stop_as_last_resort:
+                        stop_source = PPSR_V4_LAST_RESORT_STOP_SOURCE
+                    task_disabled_candidate_rows = candidate_scores_to_rows(
+                        method=method,
+                        episode_id=task.episode_id,
+                        step_idx=step_idx,
+                        nominal_action=action.value,
+                        reject_reason=casa_decision.reject_reason,
+                        selection=dmps_selection,
+                    )
+                    for row in task_disabled_candidate_rows:
+                        row.update(
+                            {
+                                "ppsr_v4_ablation_variant": ppsr_v4_variant,
+                                "ppsr_v4_task_return_replan_enabled": 0,
+                                "ppsr_v4_task_return_replan_disabled": 1,
+                                "ppsr_v4_task_return_replan_applied": 0,
+                                "task_return_candidate": 0,
+                            }
+                        )
+                    dmps_candidate_rows.extend(task_disabled_candidate_rows)
+                    for rollout_row in dmps_selection.rollout_rows:
+                        rollout_row.update(
+                            {
+                                "method": method,
+                                "episode_id": task.episode_id,
+                                "step_id": step_idx,
+                                "nominal_action": action.value,
+                                "ppsr_v4_ablation_variant": ppsr_v4_variant,
+                                "ppsr_v4_task_return_replan_enabled": 0,
+                                "ppsr_v4_task_return_replan_disabled": 1,
+                                "ppsr_v4_task_return_replan_applied": 0,
+                            }
+                        )
+                        dmps_rollout_rows.append(rollout_row)
                 elif is_ppsr_v3_method(method) or is_ppsr_v4_method(method):
                     ppsr_v4 = is_ppsr_v4_method(method)
                     dmps_selection = select_ppsr_v3_replan(
@@ -657,6 +751,9 @@ def run_episode_with_method(
                     )
                     dmps_replan_applied = True
                     ppsr_v3_replan_applied = True
+                    ppsr_v4_task_return_replan_applied = bool(ppsr_v4)
+                    if ppsr_v4:
+                        metadata["ppsr_v4_task_return_replan_applied"] = True
                     casa_replan_applied = True
                     selected_sequence = dmps_selection.selected_sequence
                     first_action = selected_sequence.actions[0]
@@ -685,16 +782,25 @@ def run_episode_with_method(
                     ppsr_v3_policy_ready_score = float(dmps_selection.selected_score.policy_ready_score)
                     if selected_sequence.stop_as_last_resort:
                         stop_source = PPSR_V4_LAST_RESORT_STOP_SOURCE if ppsr_v4 else PPSR_V3_LAST_RESORT_STOP_SOURCE
-                    dmps_candidate_rows.extend(
-                        candidate_scores_to_rows(
-                            method=method,
-                            episode_id=task.episode_id,
-                            step_idx=step_idx,
-                            nominal_action=action.value,
-                            reject_reason=casa_decision.reject_reason,
-                            selection=dmps_selection,
-                        )
+                    task_return_candidate_rows = candidate_scores_to_rows(
+                        method=method,
+                        episode_id=task.episode_id,
+                        step_idx=step_idx,
+                        nominal_action=action.value,
+                        reject_reason=casa_decision.reject_reason,
+                        selection=dmps_selection,
                     )
+                    if ppsr_v4:
+                        for row in task_return_candidate_rows:
+                            row.update(
+                                {
+                                    "ppsr_v4_ablation_variant": ppsr_v4_variant,
+                                    "ppsr_v4_task_return_replan_enabled": 1,
+                                    "ppsr_v4_task_return_replan_disabled": 0,
+                                    "ppsr_v4_task_return_replan_applied": 1,
+                                }
+                            )
+                    dmps_candidate_rows.extend(task_return_candidate_rows)
                     for rollout_row in dmps_selection.rollout_rows:
                         rollout_row.update(
                             {
@@ -702,6 +808,10 @@ def run_episode_with_method(
                                 "episode_id": task.episode_id,
                                 "step_id": step_idx,
                                 "nominal_action": action.value,
+                                "ppsr_v4_ablation_variant": ppsr_v4_variant if ppsr_v4 else "",
+                                "ppsr_v4_task_return_replan_enabled": int(ppsr_v4),
+                                "ppsr_v4_task_return_replan_disabled": 0,
+                                "ppsr_v4_task_return_replan_applied": int(ppsr_v4),
                             }
                         )
                         dmps_rollout_rows.append(rollout_row)
@@ -949,32 +1059,40 @@ def run_episode_with_method(
         distance = distance_to_goal(task, pose_before)
         post_reject_progress = (distance - distance_after) if casa_decision is not None and casa_decision.casa_reject else None
         if dmps_replan_applied:
-            dmps_selected_rows.append(
-                selected_replan_row(
-                    method=method,
-                    episode_id=task.episode_id,
-                    step_idx=step_idx,
-                    nominal_action=action.value,
-                    reject_reason=casa_decision.reject_reason if casa_decision else "",
-                    selection=dmps_selection,
-                    executed_first_skill=final_skill,
-                    stop_source=stop_source,
-                    post_reject_progress_evaluator_only=float(post_reject_progress or 0.0),
-                    committed_second_action=ppsr_v2_second_action or ppsr_v3_second_action,
-                    committed_second_step_executed=ppsr_v2_commitment_executed or ppsr_v3_second_step_executed,
-                    committed_second_step_aborted=ppsr_v2_commitment_aborted or ppsr_v3_second_step_aborted,
-                    second_action_safety_feasible=ppsr_v2_second_action_safety_feasible
-                    or ppsr_v3_second_action_safety_feasible,
-                    abort_reason=ppsr_v2_commitment_abort_reason or ppsr_v3_commitment_abort_reason,
-                    max_commit_steps=config.ppsr_v4_max_execute_steps
-                    if ppsr_v3_replan_applied and is_ppsr_v4_method(method)
-                    else config.ppsr_v3_max_execute_steps
-                    if ppsr_v3_replan_applied
-                    else config.ppsr_v2_max_commit_steps
-                    if ppsr_v2_replan_applied
-                    else 1,
-                )
+            selected_row = selected_replan_row(
+                method=method,
+                episode_id=task.episode_id,
+                step_idx=step_idx,
+                nominal_action=action.value,
+                reject_reason=casa_decision.reject_reason if casa_decision else "",
+                selection=dmps_selection,
+                executed_first_skill=final_skill,
+                stop_source=stop_source,
+                post_reject_progress_evaluator_only=float(post_reject_progress or 0.0),
+                committed_second_action=ppsr_v2_second_action or ppsr_v3_second_action,
+                committed_second_step_executed=ppsr_v2_commitment_executed or ppsr_v3_second_step_executed,
+                committed_second_step_aborted=ppsr_v2_commitment_aborted or ppsr_v3_second_step_aborted,
+                second_action_safety_feasible=ppsr_v2_second_action_safety_feasible
+                or ppsr_v3_second_action_safety_feasible,
+                abort_reason=ppsr_v2_commitment_abort_reason or ppsr_v3_commitment_abort_reason,
+                max_commit_steps=config.ppsr_v4_max_execute_steps
+                if ppsr_v3_replan_applied and is_ppsr_v4_method(method)
+                else config.ppsr_v3_max_execute_steps
+                if ppsr_v3_replan_applied
+                else config.ppsr_v2_max_commit_steps
+                if ppsr_v2_replan_applied
+                else 1,
             )
+            if ppsr_v4_family:
+                selected_row.update(
+                    {
+                        "ppsr_v4_ablation_variant": ppsr_v4_variant,
+                        "ppsr_v4_task_return_replan_enabled": int(ppsr_v4_task_return_enabled),
+                        "ppsr_v4_task_return_replan_disabled": int(ppsr_v4_task_return_replan_disabled),
+                        "ppsr_v4_task_return_replan_applied": int(ppsr_v4_task_return_replan_applied),
+                    }
+                )
+            dmps_selected_rows.append(selected_row)
         record = {
             "method": method,
             "episode_id": task.episode_id,
@@ -1072,9 +1190,19 @@ def run_episode_with_method(
             "ppsr_v3_second_step_aborted": ppsr_v3_second_step_aborted,
             "ppsr_v3_second_skill_status": ppsr_v3_second_skill_status,
             "ppsr_v3_commitment_abort_reason": ppsr_v3_commitment_abort_reason,
+            "ppsr_v4_ablation_variant": ppsr_v4_variant,
             "ppsr_v4_stop_verifier_applied": ppsr_v4_stop_verifier_applied,
+            "ppsr_v4_stop_verifier_bypassed": ppsr_v4_stop_verifier_bypassed,
             "ppsr_v4_premature_stop_suppressed": ppsr_v4_premature_stop_suppressed,
+            "ppsr_v4_late_stop_recovery_candidate": ppsr_v4_late_stop_recovery_candidate,
+            "ppsr_v4_late_stop_recovery_disabled": ppsr_v4_late_stop_recovery_disabled,
             "ppsr_v4_late_stop_recovery_applied": ppsr_v4_late_stop_recovery_applied,
+            "ppsr_v4_visual_goal_tracker_candidate": ppsr_v4_visual_goal_tracker_candidate,
+            "ppsr_v4_visual_goal_tracker_disabled": ppsr_v4_visual_goal_tracker_disabled,
+            "ppsr_v4_visual_goal_tracker_applied": ppsr_v4_visual_goal_tracker_applied,
+            "ppsr_v4_task_return_replan_enabled": ppsr_v4_task_return_enabled,
+            "ppsr_v4_task_return_replan_disabled": ppsr_v4_task_return_replan_disabled,
+            "ppsr_v4_task_return_replan_applied": ppsr_v4_task_return_replan_applied,
             "ppsr_v4_third_action": ppsr_v4_third_action,
             "ppsr_v4_third_action_safety_feasible": ppsr_v4_third_action_safety_feasible,
             "ppsr_v4_third_step_executed": ppsr_v4_third_step_executed,
@@ -1469,7 +1597,7 @@ def summarize_casa_episode(
     ppsr_v4_records = [
         record
         for record in decision_records
-        if record.get("method") == PPSR_V4_METHOD_NAME and record.get("ppsr_v3_replan_applied")
+        if is_ppsr_v4_method(str(record.get("method") or "")) and record.get("ppsr_v3_replan_applied")
     ]
     ppsr_v3_clearance_gains = [float(record.get("ppsr_v3_post_reject_clearance_gain", 0.0)) for record in ppsr_v3_records]
     readiness_replan_count = len(ppsr_v2_records) + len(ppsr_v3_records)
@@ -1608,11 +1736,35 @@ def summarize_casa_episode(
         "ppsr_v4_stop_verifier_applied_count": sum(
             1 for record in decision_records if record.get("ppsr_v4_stop_verifier_applied")
         ),
+        "ppsr_v4_stop_verifier_bypassed_count": sum(
+            1 for record in decision_records if record.get("ppsr_v4_stop_verifier_bypassed")
+        ),
         "ppsr_v4_premature_stop_suppressed_count": sum(
             1 for record in decision_records if record.get("ppsr_v4_premature_stop_suppressed")
         ),
+        "ppsr_v4_late_stop_recovery_candidate_count": sum(
+            1 for record in decision_records if record.get("ppsr_v4_late_stop_recovery_candidate")
+        ),
+        "ppsr_v4_late_stop_recovery_disabled_count": sum(
+            1 for record in decision_records if record.get("ppsr_v4_late_stop_recovery_disabled")
+        ),
         "ppsr_v4_late_stop_recovery_applied_count": sum(
             1 for record in decision_records if record.get("ppsr_v4_late_stop_recovery_applied")
+        ),
+        "ppsr_v4_visual_goal_tracker_candidate_count": sum(
+            1 for record in decision_records if record.get("ppsr_v4_visual_goal_tracker_candidate")
+        ),
+        "ppsr_v4_visual_goal_tracker_disabled_count": sum(
+            1 for record in decision_records if record.get("ppsr_v4_visual_goal_tracker_disabled")
+        ),
+        "ppsr_v4_visual_goal_tracker_applied_count": sum(
+            1 for record in decision_records if record.get("ppsr_v4_visual_goal_tracker_applied")
+        ),
+        "ppsr_v4_task_return_replan_applied_count": sum(
+            1 for record in decision_records if record.get("ppsr_v4_task_return_replan_applied")
+        ),
+        "ppsr_v4_task_return_replan_disabled_count": sum(
+            1 for record in decision_records if record.get("ppsr_v4_task_return_replan_disabled")
         ),
         "ppsr_v4_third_step_executed_count": sum(
             1 for record in decision_records if record.get("ppsr_v4_third_step_executed")
@@ -1760,11 +1912,35 @@ def aggregate_method(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         "ppsr_v4_stop_verifier_applied_count": sum(
             int(episode.get("ppsr_v4_stop_verifier_applied_count", 0)) for episode in episodes
         ),
+        "ppsr_v4_stop_verifier_bypassed_count": sum(
+            int(episode.get("ppsr_v4_stop_verifier_bypassed_count", 0)) for episode in episodes
+        ),
         "ppsr_v4_premature_stop_suppressed_count": sum(
             int(episode.get("ppsr_v4_premature_stop_suppressed_count", 0)) for episode in episodes
         ),
+        "ppsr_v4_late_stop_recovery_candidate_count": sum(
+            int(episode.get("ppsr_v4_late_stop_recovery_candidate_count", 0)) for episode in episodes
+        ),
+        "ppsr_v4_late_stop_recovery_disabled_count": sum(
+            int(episode.get("ppsr_v4_late_stop_recovery_disabled_count", 0)) for episode in episodes
+        ),
         "ppsr_v4_late_stop_recovery_applied_count": sum(
             int(episode.get("ppsr_v4_late_stop_recovery_applied_count", 0)) for episode in episodes
+        ),
+        "ppsr_v4_visual_goal_tracker_candidate_count": sum(
+            int(episode.get("ppsr_v4_visual_goal_tracker_candidate_count", 0)) for episode in episodes
+        ),
+        "ppsr_v4_visual_goal_tracker_disabled_count": sum(
+            int(episode.get("ppsr_v4_visual_goal_tracker_disabled_count", 0)) for episode in episodes
+        ),
+        "ppsr_v4_visual_goal_tracker_applied_count": sum(
+            int(episode.get("ppsr_v4_visual_goal_tracker_applied_count", 0)) for episode in episodes
+        ),
+        "ppsr_v4_task_return_replan_applied_count": sum(
+            int(episode.get("ppsr_v4_task_return_replan_applied_count", 0)) for episode in episodes
+        ),
+        "ppsr_v4_task_return_replan_disabled_count": sum(
+            int(episode.get("ppsr_v4_task_return_replan_disabled_count", 0)) for episode in episodes
         ),
         "ppsr_v4_third_step_executed_count": sum(
             int(episode.get("ppsr_v4_third_step_executed_count", 0)) for episode in episodes
@@ -1990,9 +2166,19 @@ def flatten_decision_record(record: dict[str, Any]) -> dict[str, Any]:
         "ppsr_v3_second_step_executed": record.get("ppsr_v3_second_step_executed"),
         "ppsr_v3_second_step_aborted": record.get("ppsr_v3_second_step_aborted"),
         "ppsr_v3_commitment_abort_reason": record.get("ppsr_v3_commitment_abort_reason"),
+        "ppsr_v4_ablation_variant": record.get("ppsr_v4_ablation_variant"),
         "ppsr_v4_stop_verifier_applied": record.get("ppsr_v4_stop_verifier_applied"),
+        "ppsr_v4_stop_verifier_bypassed": record.get("ppsr_v4_stop_verifier_bypassed"),
         "ppsr_v4_premature_stop_suppressed": record.get("ppsr_v4_premature_stop_suppressed"),
+        "ppsr_v4_late_stop_recovery_candidate": record.get("ppsr_v4_late_stop_recovery_candidate"),
+        "ppsr_v4_late_stop_recovery_disabled": record.get("ppsr_v4_late_stop_recovery_disabled"),
         "ppsr_v4_late_stop_recovery_applied": record.get("ppsr_v4_late_stop_recovery_applied"),
+        "ppsr_v4_visual_goal_tracker_candidate": record.get("ppsr_v4_visual_goal_tracker_candidate"),
+        "ppsr_v4_visual_goal_tracker_disabled": record.get("ppsr_v4_visual_goal_tracker_disabled"),
+        "ppsr_v4_visual_goal_tracker_applied": record.get("ppsr_v4_visual_goal_tracker_applied"),
+        "ppsr_v4_task_return_replan_enabled": record.get("ppsr_v4_task_return_replan_enabled"),
+        "ppsr_v4_task_return_replan_disabled": record.get("ppsr_v4_task_return_replan_disabled"),
+        "ppsr_v4_task_return_replan_applied": record.get("ppsr_v4_task_return_replan_applied"),
         "ppsr_v4_third_action": record.get("ppsr_v4_third_action"),
         "ppsr_v4_third_action_safety_feasible": record.get("ppsr_v4_third_action_safety_feasible"),
         "ppsr_v4_third_step_executed": record.get("ppsr_v4_third_step_executed"),
@@ -2056,8 +2242,8 @@ def write_global_logs(data_dir: Path, episode_metrics: list[dict[str, Any]]) -> 
     ppsr_v2_selected_rows = [row for row in dmps_selected_rows if row.get("method") == PPSR_V2_METHOD_NAME]
     ppsr_v3_candidate_rows = [row for row in dmps_candidate_rows if row.get("method") == PPSR_V3_METHOD_NAME]
     ppsr_v3_selected_rows = [row for row in dmps_selected_rows if row.get("method") == PPSR_V3_METHOD_NAME]
-    ppsr_v4_candidate_rows = [row for row in dmps_candidate_rows if row.get("method") == PPSR_V4_METHOD_NAME]
-    ppsr_v4_selected_rows = [row for row in dmps_selected_rows if row.get("method") == PPSR_V4_METHOD_NAME]
+    ppsr_v4_candidate_rows = [row for row in dmps_candidate_rows if is_ppsr_v4_method(str(row.get("method") or ""))]
+    ppsr_v4_selected_rows = [row for row in dmps_selected_rows if is_ppsr_v4_method(str(row.get("method") or ""))]
     write_table_csv(data_dir / "ppsr_v2_candidate_sequences.csv", ppsr_v2_candidate_rows)
     write_table_csv(data_dir / "ppsr_v2_selected_replans.csv", ppsr_v2_selected_rows)
     write_table_csv(data_dir / "v3_candidate_sequences.csv", ppsr_v3_candidate_rows)
@@ -2267,7 +2453,7 @@ def write_audits(
     write_json(data_dir / "privileged_leakage_audit.json", leakage_audit)
     write_json(data_dir / "v4_privileged_leakage_audit.json", leakage_audit)
 
-    v4_decision_rows = [row for row in decision_rows if row.get("method") == PPSR_V4_METHOD_NAME]
+    v4_decision_rows = [row for row in decision_rows if is_ppsr_v4_method(str(row.get("method") or ""))]
     real_backend_audit = {
         "policy_backend": config.policy_backend,
         "v4_decision_rows": len(v4_decision_rows),
@@ -3210,7 +3396,10 @@ def postprocess_existing_run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
     write_table_csv(dirs["data"] / "method_summary.csv", method_summary)
     write_table_csv(dirs["data"] / "ppsr_v2_method_summary.csv", [row for row in method_summary if row["method"] == PPSR_V2_METHOD_NAME])
     write_table_csv(dirs["data"] / "v3_method_summary.csv", [row for row in method_summary if row["method"] == PPSR_V3_METHOD_NAME])
-    write_table_csv(dirs["data"] / "v4_method_summary.csv", [row for row in method_summary if row["method"] == PPSR_V4_METHOD_NAME])
+    write_table_csv(
+        dirs["data"] / "v4_method_summary.csv",
+        [row for row in method_summary if is_ppsr_v4_method(str(row["method"]))],
+    )
     write_json(dirs["data"] / "method_summary.json", method_summary)
     audits = write_audits(
         data_dir=dirs["data"],
@@ -3459,7 +3648,10 @@ def run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
     write_table_csv(dirs["data"] / "method_summary.csv", method_summary)
     write_table_csv(dirs["data"] / "ppsr_v2_method_summary.csv", [row for row in method_summary if row["method"] == PPSR_V2_METHOD_NAME])
     write_table_csv(dirs["data"] / "v3_method_summary.csv", [row for row in method_summary if row["method"] == PPSR_V3_METHOD_NAME])
-    write_table_csv(dirs["data"] / "v4_method_summary.csv", [row for row in method_summary if row["method"] == PPSR_V4_METHOD_NAME])
+    write_table_csv(
+        dirs["data"] / "v4_method_summary.csv",
+        [row for row in method_summary if is_ppsr_v4_method(str(row["method"]))],
+    )
     write_json(dirs["data"] / "method_summary.json", method_summary)
     audits = write_audits(
         data_dir=dirs["data"],

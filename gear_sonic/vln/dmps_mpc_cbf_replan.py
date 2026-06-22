@@ -33,6 +33,17 @@ PPSR_V3_LAST_RESORT_STOP_SOURCE = "ppsr_v3_last_resort_stop"
 PPSR_V3_COMMITMENT_ABORT_STOP_SOURCE = "ppsr_v3_commitment_abort_stop"
 PPSR_V4_METHOD_NAME = "vln_ppsr_v4_zero_unsafe_success60"
 PPSR_V4_ALIASES = ("vln_ppsr_v4", "vln_ppsr_zero_unsafe_success60")
+PPSR_V4_ABLATE_NO_STOP_VERIFIER_METHOD_NAME = "vln_ppsr_v4_ablate_no_stop_verifier"
+PPSR_V4_ABLATE_NO_LATE_STOP_RECOVERY_METHOD_NAME = "vln_ppsr_v4_ablate_no_late_stop_recovery"
+PPSR_V4_ABLATE_NO_VISUAL_GOAL_TRACKER_METHOD_NAME = "vln_ppsr_v4_ablate_no_visual_goal_tracker"
+PPSR_V4_ABLATE_NO_TASK_RETURN_REPLAN_METHOD_NAME = "vln_ppsr_v4_ablate_no_task_return_replan"
+PPSR_V4_ABLATION_METHODS = (
+    PPSR_V4_ABLATE_NO_STOP_VERIFIER_METHOD_NAME,
+    PPSR_V4_ABLATE_NO_LATE_STOP_RECOVERY_METHOD_NAME,
+    PPSR_V4_ABLATE_NO_VISUAL_GOAL_TRACKER_METHOD_NAME,
+    PPSR_V4_ABLATE_NO_TASK_RETURN_REPLAN_METHOD_NAME,
+)
+PPSR_V4_METHODS = (PPSR_V4_METHOD_NAME, *PPSR_V4_ABLATION_METHODS)
 PPSR_V4_LAST_RESORT_STOP_SOURCE = "ppsr_v4_last_resort_stop"
 PPSR_V4_COMMITMENT_ABORT_STOP_SOURCE = "ppsr_v4_commitment_abort_stop"
 
@@ -240,7 +251,11 @@ def is_ppsr_v3_method(method: str) -> bool:
 
 
 def is_ppsr_v4_method(method: str) -> bool:
-    return normalize_dmps_method(method) == PPSR_V4_METHOD_NAME
+    return normalize_dmps_method(method) in PPSR_V4_METHODS
+
+
+def ppsr_v4_task_return_replan_enabled(method: str) -> bool:
+    return normalize_dmps_method(method) != PPSR_V4_ABLATE_NO_TASK_RETURN_REPLAN_METHOD_NAME
 
 
 def build_candidate_sequences(

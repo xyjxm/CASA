@@ -1,0 +1,5 @@
+method,safe_success_rate_delta_vs_full,unsafe_rate_delta_vs_full,stop_recall_delta_vs_full,premature_stop_delta_vs_full
+vln_ppsr_v4_ablate_no_stop_verifier,-0.13999999999999996,0.0,-0.14814814814814814,-0.02
+vln_ppsr_v4_ablate_no_late_stop_recovery,0.0,0.0,-0.032258064516129004,-0.02
+vln_ppsr_v4_ablate_no_visual_goal_tracker,0.0,0.0,0.0,0.0
+vln_ppsr_v4_ablate_no_task_return_replan,-0.24,0.0,0.0,-0.02

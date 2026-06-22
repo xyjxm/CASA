@@ -18,6 +18,11 @@ from gear_sonic.vln.dmps_mpc_cbf_replan import (
     DMPS_METHOD_NAME,
     PPSR_V2_METHOD_NAME,
     PPSR_V3_METHOD_NAME,
+    PPSR_V4_ABLATE_NO_LATE_STOP_RECOVERY_METHOD_NAME,
+    PPSR_V4_ABLATE_NO_STOP_VERIFIER_METHOD_NAME,
+    PPSR_V4_ABLATE_NO_TASK_RETURN_REPLAN_METHOD_NAME,
+    PPSR_V4_ABLATE_NO_VISUAL_GOAL_TRACKER_METHOD_NAME,
+    PPSR_V4_ABLATION_METHODS,
     PPSR_V4_LAST_RESORT_STOP_SOURCE,
     PPSR_V4_METHOD_NAME,
     add_ppsr_v4_recovery_sequences,
@@ -27,6 +32,7 @@ from gear_sonic.vln.dmps_mpc_cbf_replan import (
     is_ppsr_v2_method,
     is_ppsr_v3_method,
     is_ppsr_v4_method,
+    ppsr_v4_task_return_replan_enabled,
 )
 from gear_sonic.vln.no_casa_policy import InferenceInput
 from gear_sonic.vln.oracle import RobotPose2D
@@ -35,6 +41,7 @@ from gear_sonic.vln.ppsr_v4_stop import (
     apply_ppsr_v4_stop_verifier,
     build_v4_stop_audit,
     detect_privileged_online_leakage,
+    ppsr_v4_stop_verifier_config_for_method,
 )
 
 
@@ -43,6 +50,35 @@ def test_ppsr_v4_method_registration() -> None:
     assert method_list(PPSR_V4_METHOD_NAME) == (PPSR_V4_METHOD_NAME,)
     assert method_list("vln_ppsr_v4") == (PPSR_V4_METHOD_NAME,)
     assert is_ppsr_v4_method(PPSR_V4_METHOD_NAME)
+    for method in PPSR_V4_ABLATION_METHODS:
+        assert method in METHODS
+        assert method_list(method) == (method,)
+        assert is_ppsr_v4_method(method)
+
+
+def test_ppsr_v4_ablation_config_mapping() -> None:
+    no_stop = ppsr_v4_stop_verifier_config_for_method(PPSR_V4_ABLATE_NO_STOP_VERIFIER_METHOD_NAME)
+    assert no_stop.ablation_variant == "no_stop_verifier"
+    assert no_stop.stop_verifier_enabled is False
+    assert no_stop.late_stop_recovery_enabled is False
+    assert no_stop.visual_goal_tracker_enabled is False
+
+    no_late = ppsr_v4_stop_verifier_config_for_method(PPSR_V4_ABLATE_NO_LATE_STOP_RECOVERY_METHOD_NAME)
+    assert no_late.stop_verifier_enabled is True
+    assert no_late.late_stop_recovery_enabled is False
+    assert no_late.visual_goal_tracker_enabled is True
+
+    no_visual = ppsr_v4_stop_verifier_config_for_method(PPSR_V4_ABLATE_NO_VISUAL_GOAL_TRACKER_METHOD_NAME)
+    assert no_visual.stop_verifier_enabled is True
+    assert no_visual.late_stop_recovery_enabled is True
+    assert no_visual.visual_goal_tracker_enabled is False
+
+    no_task = ppsr_v4_stop_verifier_config_for_method(PPSR_V4_ABLATE_NO_TASK_RETURN_REPLAN_METHOD_NAME)
+    assert no_task.stop_verifier_enabled is True
+    assert no_task.late_stop_recovery_enabled is True
+    assert no_task.visual_goal_tracker_enabled is True
+    assert ppsr_v4_task_return_replan_enabled(PPSR_V4_METHOD_NAME) is True
+    assert ppsr_v4_task_return_replan_enabled(PPSR_V4_ABLATE_NO_TASK_RETURN_REPLAN_METHOD_NAME) is False
 
 
 def test_ppsr_v4_does_not_change_v1_v2_v3_registration() -> None:
@@ -129,6 +165,50 @@ def test_v4_stop_verifier_improves_recall_without_accepting_premature_stop(tmp_p
     )
     assert filtered.action is not VLNAction.STOP
     assert filtered.metadata["ppsr_v4_premature_stop_suppressed"] is True
+
+
+def test_v4_no_stop_verifier_ablation_bypasses_all_stop_rewrites(tmp_path: Path) -> None:
+    target = tmp_path / "target.png"
+    blank = tmp_path / "blank.png"
+    Image.new("RGB", (80, 60), (20, 180, 200)).save(target)
+    Image.new("RGB", (80, 60), (20, 20, 20)).save(blank)
+    cfg = ppsr_v4_stop_verifier_config_for_method(
+        PPSR_V4_ABLATE_NO_STOP_VERIFIER_METHOD_NAME,
+        min_route_motion_actions=2,
+        route_complete_visual_ratio=0.02,
+    )
+    stop_obs = InferenceInput(
+        episode_id="ep",
+        step_idx=3,
+        instruction="move forward x2; stop near the gallery wall painting",
+        image_path=str(target),
+        previous_actions=["forward", "forward"],
+        previous_skill_status=["ok", "ok"],
+    )
+    recalled = apply_ppsr_v4_stop_verifier(
+        obs=stop_obs,
+        decision=ActionDecision(VLNAction.FORWARD, "forward", "vln_policy"),
+        config=cfg,
+    )
+    assert recalled.action is VLNAction.FORWARD
+    assert recalled.metadata["ppsr_v4_stop_verifier_bypassed"] is True
+    assert recalled.metadata["ppsr_v4_stop_verifier_applied"] is False
+
+    premature_obs = InferenceInput(
+        episode_id="ep",
+        step_idx=0,
+        instruction="move forward x2; stop near the gallery wall painting",
+        image_path=str(blank),
+        previous_actions=[],
+        previous_skill_status=[],
+    )
+    filtered = apply_ppsr_v4_stop_verifier(
+        obs=premature_obs,
+        decision=ActionDecision(VLNAction.STOP, "stop", "vln_policy"),
+        config=cfg,
+    )
+    assert filtered.action is VLNAction.STOP
+    assert filtered.metadata["ppsr_v4_premature_stop_suppressed"] is False
 
 
 def test_v4_stop_verifier_does_not_treat_metadata_keys_as_stop_hint(tmp_path: Path) -> None:
@@ -261,6 +341,43 @@ def test_v4_visual_goal_tracker_steers_to_visible_route_goal(tmp_path: Path) -> 
     assert tracked.metadata["ppsr_v4_visual_goal_tracker_applied"] is True
 
 
+def test_v4_no_visual_goal_tracker_ablation_records_disabled_candidate(tmp_path: Path) -> None:
+    image_path = tmp_path / "right_target.png"
+    image = Image.new("RGB", (80, 60), (20, 20, 20))
+    for y in range(60):
+        for x in range(56, 80):
+            image.putpixel((x, y), (20, 180, 200))
+    image.save(image_path)
+    cfg = ppsr_v4_stop_verifier_config_for_method(
+        PPSR_V4_ABLATE_NO_VISUAL_GOAL_TRACKER_METHOD_NAME,
+        min_visual_goal_tracking_motion_actions=2,
+        strong_visual_ratio=0.95,
+        route_complete_visual_ratio=0.95,
+        calibrated_route_visual_ratio=0.95,
+        visual_goal_tracking_ratio=0.05,
+        max_visual_goal_tracking_ratio=0.50,
+        max_visual_goal_tracking_growth_ratio=0.50,
+        min_visual_goal_tracking_bbox_area=0.05,
+    )
+    obs = InferenceInput(
+        episode_id="ep",
+        step_idx=6,
+        instruction="turn left when the corridor bends; then turn right when the corridor bends; stop when the gallery wall painting is close",
+        image_path=str(image_path),
+        previous_actions=["turn_left", "forward", "turn_right", "forward"],
+        previous_skill_status=["ok", "ok", "ok", "ok"],
+    )
+    tracked = apply_ppsr_v4_stop_verifier(
+        obs=obs,
+        decision=ActionDecision(VLNAction.TURN_LEFT, "turn_left", "vln_policy"),
+        config=cfg,
+    )
+    assert tracked.action is VLNAction.TURN_LEFT
+    assert tracked.metadata["ppsr_v4_visual_goal_tracker_candidate_action"] == VLNAction.TURN_RIGHT.value
+    assert tracked.metadata["ppsr_v4_visual_goal_tracker_disabled"] is True
+    assert tracked.metadata["ppsr_v4_visual_goal_tracker_applied"] is False
+
+
 def test_v4_default_low_ratio_route_goal_tracks_instead_of_stopping(tmp_path: Path) -> None:
     image_path = tmp_path / "sparse_right_goal.png"
     image = Image.new("RGB", (80, 60), (20, 20, 20))
@@ -360,6 +477,51 @@ def test_v4_recent_visual_memory_stop_recalls_after_close_occlusion(tmp_path: Pa
     assert recalled.action is VLNAction.STOP
     assert recalled.metadata["ppsr_v4_recent_visual_memory_stop"] is True
     assert recalled.metadata["ppsr_v4_stop_verifier_applied"] is True
+
+
+def test_v4_no_late_stop_recovery_ablation_disables_late_memory_stop(tmp_path: Path) -> None:
+    strong = tmp_path / "strong_target.png"
+    current = tmp_path / "near_occluded_target.png"
+    Image.new("RGB", (80, 60), (20, 180, 200)).save(strong)
+    image = Image.new("RGB", (80, 60), (20, 20, 20))
+    for y in range(20, 40):
+        for x in range(39, 41):
+            image.putpixel((x, y), (20, 180, 200))
+    image.save(current)
+    previous_actions = [
+        VLNAction.TURN_LEFT.value,
+        VLNAction.FORWARD.value,
+        VLNAction.TURN_RIGHT.value,
+        *([VLNAction.FORWARD.value] * 112),
+        VLNAction.TURN_LEFT.value,
+        VLNAction.TURN_RIGHT.value,
+        VLNAction.TURN_LEFT.value,
+        VLNAction.TURN_RIGHT.value,
+        VLNAction.FORWARD.value,
+    ]
+    obs = InferenceInput(
+        episode_id="ep",
+        step_idx=len(previous_actions),
+        instruction="turn left when the corridor bends; then turn right when the corridor bends; stop when the gallery wall painting is close",
+        image_path=str(current),
+        history_image_paths=[str(strong), str(strong)],
+        previous_actions=previous_actions,
+        previous_skill_status=["ok"] * len(previous_actions),
+    )
+
+    checked = apply_ppsr_v4_stop_verifier(
+        obs=obs,
+        decision=ActionDecision(VLNAction.FORWARD, "forward", "vln_policy"),
+        config=ppsr_v4_stop_verifier_config_for_method(PPSR_V4_ABLATE_NO_LATE_STOP_RECOVERY_METHOD_NAME),
+    )
+
+    assert checked.action is VLNAction.FORWARD
+    assert checked.metadata["ppsr_v4_recent_visual_memory_stop_candidate"] is True
+    assert checked.metadata["ppsr_v4_recent_visual_memory_stop"] is False
+    assert checked.metadata["ppsr_v4_late_stop_recovery_candidate"] is True
+    assert checked.metadata["ppsr_v4_late_stop_recovery_disabled"] is True
+    assert checked.metadata["ppsr_v4_late_stop_recovery_applied"] is False
+    assert "recent_visual_memory_stop" in checked.metadata["ppsr_v4_late_stop_recovery_disabled_sources"]
 
 
 def test_v4_late_forward_visual_memory_stop_recalls_after_long_approach(tmp_path: Path) -> None:

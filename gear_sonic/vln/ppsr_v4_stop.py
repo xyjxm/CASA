@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
@@ -14,6 +15,17 @@ from .no_casa_policy import InferenceInput, detect_gallery_wall_painting, parse_
 
 PPSR_V4_METHOD_NAME = "vln_ppsr_v4_zero_unsafe_success60"
 PPSR_V4_ALIASES = ("vln_ppsr_v4", "vln_ppsr_zero_unsafe_success60")
+PPSR_V4_ABLATE_NO_STOP_VERIFIER_METHOD_NAME = "vln_ppsr_v4_ablate_no_stop_verifier"
+PPSR_V4_ABLATE_NO_LATE_STOP_RECOVERY_METHOD_NAME = "vln_ppsr_v4_ablate_no_late_stop_recovery"
+PPSR_V4_ABLATE_NO_VISUAL_GOAL_TRACKER_METHOD_NAME = "vln_ppsr_v4_ablate_no_visual_goal_tracker"
+PPSR_V4_ABLATE_NO_TASK_RETURN_REPLAN_METHOD_NAME = "vln_ppsr_v4_ablate_no_task_return_replan"
+PPSR_V4_ABLATION_METHODS = (
+    PPSR_V4_ABLATE_NO_STOP_VERIFIER_METHOD_NAME,
+    PPSR_V4_ABLATE_NO_LATE_STOP_RECOVERY_METHOD_NAME,
+    PPSR_V4_ABLATE_NO_VISUAL_GOAL_TRACKER_METHOD_NAME,
+    PPSR_V4_ABLATE_NO_TASK_RETURN_REPLAN_METHOD_NAME,
+)
+PPSR_V4_METHODS = (PPSR_V4_METHOD_NAME, *PPSR_V4_ABLATION_METHODS)
 PPSR_V4_LAST_RESORT_STOP_SOURCE = "ppsr_v4_last_resort_stop"
 PPSR_V4_COMMITMENT_ABORT_STOP_SOURCE = "ppsr_v4_commitment_abort_stop"
 
@@ -27,6 +39,10 @@ V4_BLOCKED_STATUS = "PARTIAL_BLOCKED_ENGINEERING"
 
 @dataclass(frozen=True)
 class PpsrV4StopVerifierConfig:
+    ablation_variant: str = "full"
+    stop_verifier_enabled: bool = True
+    late_stop_recovery_enabled: bool = True
+    visual_goal_tracker_enabled: bool = True
     min_motion_actions: int = 2
     min_step_for_visual_stop: int = 2
     min_strong_visual_motion_actions: int = 8
@@ -116,7 +132,34 @@ def normalize_ppsr_v4_method(method: str) -> str:
 
 
 def is_ppsr_v4_method(method: str) -> bool:
-    return normalize_ppsr_v4_method(method) == PPSR_V4_METHOD_NAME
+    return normalize_ppsr_v4_method(method) in PPSR_V4_METHODS
+
+
+def ppsr_v4_ablation_variant(method: str) -> str:
+    method = normalize_ppsr_v4_method(method)
+    if method == PPSR_V4_METHOD_NAME:
+        return "full"
+    if method == PPSR_V4_ABLATE_NO_STOP_VERIFIER_METHOD_NAME:
+        return "no_stop_verifier"
+    if method == PPSR_V4_ABLATE_NO_LATE_STOP_RECOVERY_METHOD_NAME:
+        return "no_late_stop_recovery"
+    if method == PPSR_V4_ABLATE_NO_VISUAL_GOAL_TRACKER_METHOD_NAME:
+        return "no_visual_goal_tracker"
+    if method == PPSR_V4_ABLATE_NO_TASK_RETURN_REPLAN_METHOD_NAME:
+        return "no_task_return_replan"
+    return "not_v4"
+
+
+def ppsr_v4_stop_verifier_config_for_method(method: str, **overrides: Any) -> PpsrV4StopVerifierConfig:
+    variant = ppsr_v4_ablation_variant(method)
+    settings: dict[str, Any] = {
+        "ablation_variant": variant,
+        "stop_verifier_enabled": variant != "no_stop_verifier",
+        "late_stop_recovery_enabled": variant not in {"no_stop_verifier", "no_late_stop_recovery"},
+        "visual_goal_tracker_enabled": variant not in {"no_stop_verifier", "no_visual_goal_tracker"},
+    }
+    settings.update(overrides)
+    return PpsrV4StopVerifierConfig(**settings)
 
 
 def apply_ppsr_v4_stop_verifier(
@@ -133,6 +176,36 @@ def apply_ppsr_v4_stop_verifier(
 
     cfg = config or PpsrV4StopVerifierConfig()
     metadata = dict(decision.metadata or {})
+    if not cfg.stop_verifier_enabled:
+        audit = {
+            "ppsr_v4_ablation_variant": cfg.ablation_variant,
+            "ppsr_v4_stop_verifier_enabled": False,
+            "ppsr_v4_stop_verifier_checked": False,
+            "ppsr_v4_stop_verifier_bypassed": True,
+            "ppsr_v4_stop_verifier_accept": False,
+            "ppsr_v4_stop_verifier_applied": False,
+            "ppsr_v4_premature_stop_suppressed": False,
+            "ppsr_v4_late_stop_recovery_enabled": False,
+            "ppsr_v4_late_stop_recovery_candidate": False,
+            "ppsr_v4_late_stop_recovery_candidate_sources": [],
+            "ppsr_v4_late_stop_recovery_disabled": False,
+            "ppsr_v4_late_stop_recovery_disabled_sources": [],
+            "ppsr_v4_late_stop_recovery_applied": False,
+            "ppsr_v4_visual_goal_tracker_enabled": False,
+            "ppsr_v4_visual_goal_tracker_candidate_action": "",
+            "ppsr_v4_visual_goal_tracker_disabled": False,
+            "ppsr_v4_visual_goal_tracker_applied": False,
+            "ppsr_v4_visual_goal_tracker_action": "",
+            "privileged_policy_usage": False,
+        }
+        return ActionDecision(
+            action=decision.action,
+            raw_output=decision.raw_output,
+            source=decision.source,
+            confidence=decision.confidence,
+            magnitude=decision.magnitude,
+            metadata={**metadata, **audit},
+        )
     evidence = _safe_wall_painting_evidence(obs.image_path)
     history_evidence = [_safe_wall_painting_evidence(path) for path in obs.history_image_paths[-3:]]
     history_best_ratio = max([float(item.get("target_ratio", 0.0)) for item in history_evidence] or [0.0])
@@ -209,7 +282,7 @@ def apply_ppsr_v4_stop_verifier(
         and bbox_area >= cfg.calibrated_route_bbox_area
         and visual_growth >= cfg.calibrated_route_visual_growth_ratio
     )
-    late_calibrated_route_visual_stop = (
+    late_calibrated_route_visual_stop_candidate = (
         visible
         and motion_count >= cfg.min_late_calibrated_route_motion_actions
         and route_complete
@@ -217,14 +290,14 @@ def apply_ppsr_v4_stop_verifier(
         and bbox_area >= cfg.late_calibrated_route_bbox_area
         and visual_growth >= cfg.late_calibrated_route_visual_growth_ratio
     )
-    late_route_low_visual_stop = (
+    late_route_low_visual_stop_candidate = (
         visible
         and motion_count >= cfg.min_late_route_low_visual_motion_actions
         and route_complete
         and target_ratio >= cfg.late_route_low_visual_ratio
         and bbox_area >= cfg.late_route_low_visual_bbox_area
     )
-    ultra_late_route_visual_stop = (
+    ultra_late_route_visual_stop_candidate = (
         visible
         and motion_count >= cfg.min_ultra_late_route_motion_actions
         and route_complete
@@ -232,7 +305,7 @@ def apply_ppsr_v4_stop_verifier(
         and target_ratio >= cfg.ultra_late_route_visual_ratio
         and bbox_area >= cfg.ultra_late_route_bbox_area
     )
-    ultra_late_forward_streak_visual_stop = (
+    ultra_late_forward_streak_visual_stop_candidate = (
         visible
         and motion_count >= cfg.min_ultra_late_forward_streak_stop_motion_actions
         and route_complete
@@ -241,7 +314,7 @@ def apply_ppsr_v4_stop_verifier(
         and target_ratio >= cfg.ultra_late_forward_streak_stop_visual_ratio
         and bbox_area >= cfg.ultra_late_forward_streak_stop_bbox_area
     )
-    recent_visual_memory_stop = (
+    recent_visual_memory_stop_candidate = (
         route_complete
         and motion_count >= cfg.min_recent_visual_memory_motion_actions
         and recent_turn_count >= cfg.min_recent_visual_memory_recent_turns
@@ -251,7 +324,7 @@ def apply_ppsr_v4_stop_verifier(
         and target_ratio <= cfg.recent_visual_memory_current_max_ratio
         and 0.0 < bbox_area <= cfg.recent_visual_memory_current_max_bbox_area
     )
-    late_forward_visual_memory_stop = (
+    late_forward_visual_memory_stop_candidate = (
         route_complete
         and motion_count >= cfg.min_late_forward_memory_motion_actions
         and recent_forward_streak >= cfg.min_late_forward_memory_streak
@@ -261,7 +334,7 @@ def apply_ppsr_v4_stop_verifier(
         and target_ratio <= cfg.late_forward_memory_current_max_ratio
         and bbox_area >= cfg.late_forward_memory_current_bbox_area
     )
-    low_ratio_full_bbox_memory_stop = (
+    low_ratio_full_bbox_memory_stop_candidate = (
         route_complete
         and motion_count >= cfg.min_low_ratio_full_bbox_memory_motion_actions
         and recent_forward_streak >= cfg.min_low_ratio_full_bbox_memory_forward_streak
@@ -272,13 +345,49 @@ def apply_ppsr_v4_stop_verifier(
         and cfg.low_ratio_full_bbox_memory_min_ratio <= target_ratio <= cfg.low_ratio_full_bbox_memory_max_ratio
         and bbox_area >= cfg.low_ratio_full_bbox_memory_bbox_area
     )
-    late_recovery_stop = (
+    late_recovery_stop_candidate = (
         visible
         and motion_count >= cfg.min_late_recovery_motion_actions
         and recent_recovery
         and route_near_complete
         and target_ratio >= cfg.late_recovery_visual_ratio
         and (bbox_area >= cfg.strong_visual_bbox_area * 0.65 or visual_growth >= cfg.visual_growth_ratio)
+    )
+    late_stop_recovery_candidate_sources = [
+        source
+        for source, candidate in (
+            ("late_calibrated_route_visual_stop", late_calibrated_route_visual_stop_candidate),
+            ("late_route_low_visual_stop", late_route_low_visual_stop_candidate),
+            ("ultra_late_route_visual_stop", ultra_late_route_visual_stop_candidate),
+            ("ultra_late_forward_streak_visual_stop", ultra_late_forward_streak_visual_stop_candidate),
+            ("recent_visual_memory_stop", recent_visual_memory_stop_candidate),
+            ("late_forward_visual_memory_stop", late_forward_visual_memory_stop_candidate),
+            ("low_ratio_full_bbox_memory_stop", low_ratio_full_bbox_memory_stop_candidate),
+            ("late_recovery_stop", late_recovery_stop_candidate),
+        )
+        if candidate
+    ]
+    late_stop_recovery_candidate = bool(late_stop_recovery_candidate_sources)
+    late_stop_recovery_disabled = late_stop_recovery_candidate and not cfg.late_stop_recovery_enabled
+    late_calibrated_route_visual_stop = late_calibrated_route_visual_stop_candidate and cfg.late_stop_recovery_enabled
+    late_route_low_visual_stop = late_route_low_visual_stop_candidate and cfg.late_stop_recovery_enabled
+    ultra_late_route_visual_stop = ultra_late_route_visual_stop_candidate and cfg.late_stop_recovery_enabled
+    ultra_late_forward_streak_visual_stop = (
+        ultra_late_forward_streak_visual_stop_candidate and cfg.late_stop_recovery_enabled
+    )
+    recent_visual_memory_stop = recent_visual_memory_stop_candidate and cfg.late_stop_recovery_enabled
+    late_forward_visual_memory_stop = late_forward_visual_memory_stop_candidate and cfg.late_stop_recovery_enabled
+    low_ratio_full_bbox_memory_stop = low_ratio_full_bbox_memory_stop_candidate and cfg.late_stop_recovery_enabled
+    late_recovery_stop = late_recovery_stop_candidate and cfg.late_stop_recovery_enabled
+    late_stop_recovery_accept = bool(
+        late_calibrated_route_visual_stop
+        or late_route_low_visual_stop
+        or ultra_late_route_visual_stop
+        or ultra_late_forward_streak_visual_stop
+        or recent_visual_memory_stop
+        or late_forward_visual_memory_stop
+        or low_ratio_full_bbox_memory_stop
+        or late_recovery_stop
     )
     verifier_accepts_stop = bool(
         not recent_blocked
@@ -340,7 +449,7 @@ def apply_ppsr_v4_stop_verifier(
         and recent_forward_streak >= cfg.min_late_forward_momentum_streak
         and recent_turn_count >= cfg.min_late_forward_momentum_recent_turns
     )
-    visual_goal_action = _visual_goal_tracking_action(
+    visual_goal_action_candidate = _visual_goal_tracking_action(
         center_x=center_x,
         cfg=cfg,
         route_complete=route_complete,
@@ -352,6 +461,7 @@ def apply_ppsr_v4_stop_verifier(
         visual_growth=visual_growth,
         verifier_accepts_stop=verifier_accepts_stop,
     )
+    visual_goal_action = visual_goal_action_candidate if cfg.visual_goal_tracker_enabled else None
     visual_goal_tracker_applied = bool(visual_goal_action is not None and visual_goal_action is not decision.action)
     low_conf_corridor_turn_filter = bool(
         not verifier_accepts_stop
@@ -387,19 +497,36 @@ def apply_ppsr_v4_stop_verifier(
     )
 
     audit = {
+        "ppsr_v4_ablation_variant": cfg.ablation_variant,
+        "ppsr_v4_stop_verifier_enabled": True,
         "ppsr_v4_stop_verifier_checked": True,
+        "ppsr_v4_stop_verifier_bypassed": False,
         "ppsr_v4_stop_verifier_accept": verifier_accepts_stop,
         "ppsr_v4_stop_verifier_applied": False,
         "ppsr_v4_premature_stop_suppressed": suppress_premature_stop,
-        "ppsr_v4_late_stop_recovery_applied": late_recovery_stop and verifier_accepts_stop,
+        "ppsr_v4_late_stop_recovery_enabled": cfg.late_stop_recovery_enabled,
+        "ppsr_v4_late_stop_recovery_candidate": late_stop_recovery_candidate,
+        "ppsr_v4_late_stop_recovery_candidate_sources": late_stop_recovery_candidate_sources,
+        "ppsr_v4_late_stop_recovery_disabled": late_stop_recovery_disabled,
+        "ppsr_v4_late_stop_recovery_disabled_sources": (
+            late_stop_recovery_candidate_sources if late_stop_recovery_disabled else []
+        ),
+        "ppsr_v4_late_stop_recovery_applied": late_stop_recovery_accept and verifier_accepts_stop,
         "ppsr_v4_calibrated_route_visual_stop": calibrated_route_visual_stop,
         "ppsr_v4_late_calibrated_route_visual_stop": late_calibrated_route_visual_stop,
+        "ppsr_v4_late_calibrated_route_visual_stop_candidate": late_calibrated_route_visual_stop_candidate,
         "ppsr_v4_late_route_low_visual_stop": late_route_low_visual_stop,
+        "ppsr_v4_late_route_low_visual_stop_candidate": late_route_low_visual_stop_candidate,
         "ppsr_v4_ultra_late_route_visual_stop": ultra_late_route_visual_stop,
+        "ppsr_v4_ultra_late_route_visual_stop_candidate": ultra_late_route_visual_stop_candidate,
         "ppsr_v4_ultra_late_forward_streak_visual_stop": ultra_late_forward_streak_visual_stop,
+        "ppsr_v4_ultra_late_forward_streak_visual_stop_candidate": ultra_late_forward_streak_visual_stop_candidate,
         "ppsr_v4_recent_visual_memory_stop": recent_visual_memory_stop,
+        "ppsr_v4_recent_visual_memory_stop_candidate": recent_visual_memory_stop_candidate,
         "ppsr_v4_late_forward_visual_memory_stop": late_forward_visual_memory_stop,
+        "ppsr_v4_late_forward_visual_memory_stop_candidate": late_forward_visual_memory_stop_candidate,
         "ppsr_v4_low_ratio_full_bbox_memory_stop": low_ratio_full_bbox_memory_stop,
+        "ppsr_v4_low_ratio_full_bbox_memory_stop_candidate": low_ratio_full_bbox_memory_stop_candidate,
         "ppsr_v4_borderline_visual_stop_holdoff": borderline_visual_stop_holdoff,
         "ppsr_v4_late_route_forward_stabilizer_applied": late_route_forward_stabilizer,
         "ppsr_v4_late_forward_momentum_lock_applied": late_forward_momentum_lock,
@@ -408,6 +535,13 @@ def apply_ppsr_v4_stop_verifier(
         "ppsr_v4_turn_probability": turn_probability,
         "ppsr_v4_forward_probability": forward_probability,
         "ppsr_v4_stop_probability": stop_probability,
+        "ppsr_v4_visual_goal_tracker_enabled": cfg.visual_goal_tracker_enabled,
+        "ppsr_v4_visual_goal_tracker_candidate_action": (
+            visual_goal_action_candidate.value if visual_goal_action_candidate is not None else ""
+        ),
+        "ppsr_v4_visual_goal_tracker_disabled": (
+            visual_goal_action_candidate is not None and not cfg.visual_goal_tracker_enabled
+        ),
         "ppsr_v4_visual_goal_tracker_applied": visual_goal_tracker_applied,
         "ppsr_v4_visual_goal_tracker_action": visual_goal_action.value if visual_goal_action is not None else "",
         "ppsr_v4_visual_stop_cue_detected": visible,
@@ -623,13 +757,24 @@ def build_v4_stop_audit(
     decision_rows: list[dict[str, Any]],
     leakage_audit: dict[str, Any],
 ) -> dict[str, Any]:
-    summary = next((row for row in method_summary if row.get("method") == PPSR_V4_METHOD_NAME), {})
-    episodes = [row for row in episode_rows if row.get("method") == PPSR_V4_METHOD_NAME]
-    decisions = [row for row in decision_rows if row.get("method") == PPSR_V4_METHOD_NAME]
+    target_method = PPSR_V4_METHOD_NAME
+    if not any(row.get("method") == target_method for row in method_summary):
+        target_method = next(
+            (str(row.get("method")) for row in method_summary if is_ppsr_v4_method(str(row.get("method") or ""))),
+            PPSR_V4_METHOD_NAME,
+        )
+    summary = next((row for row in method_summary if row.get("method") == target_method), {})
+    episodes = [row for row in episode_rows if row.get("method") == target_method]
+    decisions = [row for row in decision_rows if row.get("method") == target_method]
     verifier_rows = [
         row
         for row in decisions
         if _metadata_value(row, "ppsr_v4_stop_verifier_checked") is True
+    ]
+    bypassed_rows = [
+        row
+        for row in decisions
+        if _metadata_value(row, "ppsr_v4_stop_verifier_bypassed") is True
     ]
     applied_rows = [
         row
@@ -645,6 +790,16 @@ def build_v4_stop_audit(
         row
         for row in decisions
         if _metadata_value(row, "ppsr_v4_late_stop_recovery_applied") is True
+    ]
+    late_candidate_rows = [
+        row
+        for row in decisions
+        if _metadata_value(row, "ppsr_v4_late_stop_recovery_candidate") is True
+    ]
+    late_disabled_rows = [
+        row
+        for row in decisions
+        if _metadata_value(row, "ppsr_v4_late_stop_recovery_disabled") is True
     ]
     calibrated_rows = [
         row
@@ -711,8 +866,22 @@ def build_v4_stop_audit(
         for row in decisions
         if _metadata_value(row, "ppsr_v4_visual_goal_tracker_applied") is True
     ]
+    visual_goal_candidate_rows = [
+        row
+        for row in decisions
+        if _metadata_value(row, "ppsr_v4_visual_goal_tracker_candidate_action") not in {None, ""}
+    ]
+    visual_goal_disabled_rows = [
+        row
+        for row in decisions
+        if _metadata_value(row, "ppsr_v4_visual_goal_tracker_disabled") is True
+    ]
     return {
-        "method": PPSR_V4_METHOD_NAME,
+        "method": target_method,
+        "v4_family_methods": [str(row.get("method")) for row in method_summary if is_ppsr_v4_method(str(row.get("method") or ""))],
+        "ablation_variant_counts": dict(
+            sorted(Counter(str(_metadata_value(row, "ppsr_v4_ablation_variant") or "") for row in decisions).items())
+        ),
         "total_episodes": int(summary.get("total_episodes", len(episodes) or 0)),
         "safe_success_rate": float(summary.get("safe_success_rate", 0.0)),
         "unsafe_violation_count": int(summary.get("unsafe_violation_count", 0)),
@@ -725,8 +894,11 @@ def build_v4_stop_audit(
         "late_stop_count": sum(1 for row in episodes if row.get("stop_failure_type") == "late_stop"),
         "missing_policy_stop_count": sum(1 for row in episodes if row.get("failure_reason") == "missing_policy_stop"),
         "stop_verifier_checked_count": len(verifier_rows),
+        "stop_verifier_bypassed_count": len(bypassed_rows),
         "stop_verifier_applied_count": len(applied_rows),
         "premature_stop_suppressed_count": len(suppressed_rows),
+        "late_stop_recovery_candidate_count": len(late_candidate_rows),
+        "late_stop_recovery_disabled_count": len(late_disabled_rows),
         "late_stop_recovery_applied_count": len(late_rows),
         "calibrated_route_visual_stop_count": len(calibrated_rows),
         "late_calibrated_route_visual_stop_count": len(late_calibrated_rows),
@@ -740,6 +912,8 @@ def build_v4_stop_audit(
         "late_forward_momentum_lock_count": len(late_forward_momentum_rows),
         "low_conf_corridor_turn_filter_count": len(low_conf_corridor_turn_rows),
         "route_cadence_turn_filter_count": len(route_cadence_turn_rows),
+        "visual_goal_tracker_candidate_count": len(visual_goal_candidate_rows),
+        "visual_goal_tracker_disabled_count": len(visual_goal_disabled_rows),
         "visual_goal_tracker_applied_count": len(visual_goal_rows),
         "visual_stop_cue_detected_count": sum(
             1 for row in verifier_rows if _metadata_value(row, "ppsr_v4_visual_stop_cue_detected") is True

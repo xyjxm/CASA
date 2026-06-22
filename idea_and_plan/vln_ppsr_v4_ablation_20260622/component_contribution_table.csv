@@ -1,0 +1,6 @@
+method,safe_success_count,safe_success_rate,unsafe_violation_count,unsafe_violation_rate,stop_precision,stop_recall,premature_stop_rate,late_stop_rate,missing_policy_stop_count,collision_count,fall_count,stop_verifier_applied_count,stop_verifier_bypassed_count,late_stop_recovery_applied_count,late_stop_recovery_candidate_count,late_stop_recovery_disabled_count,visual_goal_tracker_applied_count,visual_goal_tracker_candidate_count,visual_goal_tracker_disabled_count,task_return_replan_applied_count,task_return_replan_disabled_count
+vln_ppsr_v4_zero_unsafe_success60,30,0.6,0,0.0,0.967741935483871,1.0,0.02,0.0,19,0,0,17,0,12,0,0,170,0,0,1561,0
+vln_ppsr_v4_ablate_no_stop_verifier,23,0.46,0,0.0,1.0,0.8518518518518519,0.0,0.08,27,0,0,0,6266,0,0,0,0,0,0,1596,0
+vln_ppsr_v4_ablate_no_late_stop_recovery,30,0.6,0,0.0,1.0,0.967741935483871,0.0,0.02,20,0,0,15,0,0,23,23,171,198,0,1593,0
+vln_ppsr_v4_ablate_no_visual_goal_tracker,30,0.6,0,0.0,0.967741935483871,1.0,0.02,0.0,19,0,0,18,0,21,21,0,0,103,103,1647,0
+vln_ppsr_v4_ablate_no_task_return_replan,18,0.36,0,0.0,1.0,1.0,0.0,0.0,32,0,0,2,0,10,10,0,0,0,0,0,5239
