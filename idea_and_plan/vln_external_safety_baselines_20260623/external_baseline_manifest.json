@@ -1,0 +1,84 @@
+{
+  "created_at": "2026-06-24T01:56:40+0800",
+  "external_method_metadata": {
+    "mpc_cbf_humanoid_adapted": {
+      "claim": "adapted baseline",
+      "fallback_strategy": "fall back to a non-success last-resort stop only if no non-stop CBF-feasible candidate exists.",
+      "filter_action": "short-horizon skill rollout with discrete CBF clearance barrier; select the highest-scoring feasible candidate.",
+      "official_reproduction": false,
+      "online_inputs": [
+        "nominal_vln_action",
+        "robot_local_pose",
+        "local_occupancy_clearance",
+        "head_camera_free_space_proxy",
+        "recent_action_status_history"
+      ]
+    },
+    "safedpa_adapted": {
+      "claim": "adapted baseline",
+      "fallback_strategy": "prefer minimal action correction; use non-success stop only when every correction is infeasible.",
+      "filter_action": "policy action adaptation: project an unsafe or low-margin nominal action to the closest safe action.",
+      "official_reproduction": false,
+      "online_inputs": [
+        "nominal_vln_action",
+        "robot_local_pose",
+        "local_occupancy_clearance",
+        "head_camera_free_space_proxy",
+        "recent_action_status_history"
+      ]
+    },
+    "spark_style_filter_adapted": {
+      "claim": "SPARK-style adaptation",
+      "constraints": [
+        "minimum local clearance margin",
+        "no predicted wall contact along skill rollout",
+        "avoid repeated rejected/fallback actions when possible"
+      ],
+      "fallback_strategy": "project first, then recover with backoff/open-space/turn behavior, then non-success stop as last resort.",
+      "filter_action": "runtime shield rejects unsafe nominal actions, projects to a safe local action, or selects a recovery.",
+      "official_code_used": false,
+      "official_reproduction": false,
+      "online_inputs": [
+        "nominal_vln_action",
+        "robot_local_pose",
+        "local_occupancy_clearance",
+        "head_camera_free_space_proxy",
+        "recent_action_status_history"
+      ],
+      "style_adaptation_note": "This is a SPARK-style runtime safety filter adaptation for SONIC VLN, not an official SPARK reproduction."
+    }
+  },
+  "git_commit": "6d709b4c1bdb25fe92ac913fd5b5b95ae48cb84a",
+  "git_status_short": "M gear_sonic/vln/casa_runner.py\n M gear_sonic/vln/dmps_mpc_cbf_replan.py\n?? gear_sonic/tests/vln/test_external_safety_baselines.py",
+  "large_outputs_not_in_git": true,
+  "methods": [
+    "vln_ppsr_v4_zero_unsafe_success60",
+    "mpc_cbf_humanoid_adapted",
+    "safedpa_adapted",
+    "spark_style_filter_adapted"
+  ],
+  "outputs": {
+    "external_baseline_manifest_json": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846/external_baseline_manifest.json",
+    "external_baseline_method_summary_csv": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846/external_baseline_method_summary.csv",
+    "external_baseline_report_md": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846/external_baseline_report.md",
+    "external_baseline_result_summary_json": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846/external_baseline_result_summary.json",
+    "failure_reason_breakdown_json": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846/failure_reason_breakdown.json",
+    "intervention_budget_comparison_csv": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846/intervention_budget_comparison.csv",
+    "pairwise_comparison_vs_casa_csv": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846/pairwise_comparison_vs_casa.csv"
+  },
+  "protocol": {
+    "eval_stage": "locked",
+    "heldout_episodes": 50,
+    "max_steps": 180,
+    "no_final_heldout_tuning_recorded": true,
+    "policy_backend": "real_navid_visual_adapter",
+    "same_heldout_split_for_all_methods": true,
+    "same_success_evaluator": true,
+    "same_unsafe_oracle": true,
+    "seeds": [
+      260614
+    ]
+  },
+  "run_dir": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846",
+  "spark_style_note": "This is a SPARK-style runtime safety filter adaptation for SONIC VLN, not an official SPARK reproduction."
+}

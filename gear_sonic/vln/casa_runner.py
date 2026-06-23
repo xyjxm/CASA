@@ -33,6 +33,11 @@ from .dmps_mpc_cbf_replan import (
     DMPS_ALIAS,
     DMPS_LAST_RESORT_STOP_SOURCE,
     DMPS_METHOD_NAME,
+    EXTERNAL_ADAPTED_METHODS,
+    EXTERNAL_BASELINE_DEBUG_FIELDS,
+    EXTERNAL_BASELINE_METHOD_METADATA,
+    EXTERNAL_BASELINE_STOP_SOURCES,
+    MPC_CBF_HUMANOID_ADAPTED_METHOD_NAME,
     PPSR_V2_ALIASES,
     PPSR_V2_COMMITMENT_ABORT_STOP_SOURCE,
     PPSR_V2_LAST_RESORT_STOP_SOURCE,
@@ -51,8 +56,11 @@ from .dmps_mpc_cbf_replan import (
     PPSR_V4_METHOD_NAME,
     PPSR_V4_METHODS,
     PPSR_V4_SCORE_WEIGHTS,
+    SAFEDPA_ADAPTED_METHOD_NAME,
+    SPARK_STYLE_FILTER_ADAPTED_METHOD_NAME,
     candidate_scores_to_rows,
     is_dmps_method,
+    is_external_adapted_method,
     is_ppsr_v2_method,
     is_ppsr_v3_method,
     is_ppsr_v4_method,
@@ -60,6 +68,7 @@ from .dmps_mpc_cbf_replan import (
     ppsr_v4_task_return_replan_enabled,
     rollout_candidate_sequence,
     select_dmps_replan,
+    select_external_adapted_baseline,
     select_ppsr_v2_replan,
     select_ppsr_v3_replan,
     selected_replan_row,
@@ -121,6 +130,7 @@ METHODS = (
     PPSR_V3_METHOD_NAME,
     PPSR_V4_METHOD_NAME,
     *PPSR_V4_ABLATION_METHODS,
+    *EXTERNAL_ADAPTED_METHODS,
 )
 DECISION_LOG_COLUMNS = [
     "method",
@@ -514,8 +524,72 @@ def run_episode_with_method(
         all_non_stop_candidates_infeasible = False
         rejected_candidate_skill_was_executed = False
         selected_sequence = None
+        external_safety_filter_applied = False
+        external_safety_filter_reject = False
+        external_safety_filter_replan = False
+        external_safety_filter_fallback = False
+        external_safety_filter_reason = ""
+        external_nominal_cbf_margin = None
+        external_selected_cbf_margin = None
+        external_selected_candidate = ""
+        external_original_action = action.value
+        external_adapted_action = action.value
+        external_debug: dict[str, Any] = {}
 
-        if method != "vln_only":
+        if is_external_adapted_method(method):
+            external_selection = select_external_adapted_baseline(
+                method=method,
+                pose=pose_before,
+                maze=env.maze,
+                robot_radius=env.robot_radius,
+                nominal_action=action,
+                nominal_skill=candidate_skill,
+                image_path=frame_path,
+                progress_monitor=progress_monitor,
+                step_idx=step_idx,
+                safety_margin=config.safety_margin,
+                horizon=config.dmps_horizon,
+            )
+            external_safety_filter_applied = external_selection.intervention_applied
+            external_safety_filter_reject = external_selection.reject_applied
+            external_safety_filter_replan = external_selection.replan_applied
+            external_safety_filter_fallback = external_selection.fallback_applied
+            external_safety_filter_reason = external_selection.selection_reason
+            external_nominal_cbf_margin = float(external_selection.nominal_rollout.min_barrier_h)
+            external_selected_cbf_margin = float(external_selection.selected_rollout.min_barrier_h)
+            external_selected_candidate = external_selection.selected_sequence.sequence_id
+            external_original_action = action.value
+            external_adapted_action = external_selection.selected_action
+            external_debug = dict(external_selection.debug)
+            final_action_text = external_selection.selected_action
+            final_skill = external_selection.selected_skill
+            replan_selected_action = external_selection.selected_action if external_selection.intervention_applied else ""
+            replan_selected_skill = final_skill.name if external_selection.intervention_applied else ""
+            non_stop_recovery_selected = bool(
+                external_selection.intervention_applied and not external_selection.selected_sequence.stop_as_last_resort
+            )
+            all_non_stop_candidates_infeasible = bool(
+                external_selection.selected_sequence.stop_as_last_resort and external_selection.intervention_applied
+            )
+            if external_selection.stop_source:
+                stop_source = external_selection.stop_source
+            for row in external_selection.candidate_rows:
+                row.update(
+                    {
+                        "episode_id": task.episode_id,
+                        "reject_reason": external_safety_filter_reason,
+                    }
+                )
+            for row in external_selection.rollout_rows:
+                row.update(
+                    {
+                        "episode_id": task.episode_id,
+                        "reject_reason": external_safety_filter_reason,
+                    }
+                )
+            dmps_candidate_rows.extend(external_selection.candidate_rows)
+            dmps_rollout_rows.extend(external_selection.rollout_rows)
+        elif method != "vln_only":
             if bridge is None:
                 raise RuntimeError("CASA bridge is required for CASA methods")
             casa_decision = bridge.decide(
@@ -1058,6 +1132,31 @@ def run_episode_with_method(
             stop_source = ""
         distance = distance_to_goal(task, pose_before)
         post_reject_progress = (distance - distance_after) if casa_decision is not None and casa_decision.casa_reject else None
+        if is_external_adapted_method(method):
+            dmps_selected_rows.append(
+                {
+                    "method": method,
+                    "episode_id": task.episode_id,
+                    "step_id": step_idx,
+                    "nominal_action": action.value,
+                    "selected_sequence": json.dumps(list(external_selection.selected_sequence.actions)),
+                    "executed_first_action": final_action_text,
+                    "executed_first_skill": final_skill.name,
+                    "stop_source": stop_source,
+                    "non_stop_recovery_selected": int(non_stop_recovery_selected),
+                    "all_non_stop_candidates_infeasible": int(all_non_stop_candidates_infeasible),
+                    "control_returned_to_vln_next_step": 1,
+                    "selected_min_clearance": external_selection.selected_rollout.min_clearance,
+                    "selected_cbf_margin": external_selection.selected_rollout.min_barrier_h,
+                    "nominal_cbf_margin": external_selection.nominal_rollout.min_barrier_h,
+                    "safety_filter_intervention": int(external_safety_filter_applied),
+                    "safety_filter_reject": int(external_safety_filter_reject),
+                    "safety_filter_replan_applied": int(external_safety_filter_replan),
+                    "safety_filter_fallback_applied": int(external_safety_filter_fallback),
+                    "selection_reason": external_safety_filter_reason,
+                    **external_debug,
+                }
+            )
         if dmps_replan_applied:
             selected_row = selected_replan_row(
                 method=method,
@@ -1213,6 +1312,34 @@ def run_episode_with_method(
             "ppsr_v4_fourth_step_executed": ppsr_v4_fourth_step_executed,
             "ppsr_v4_fourth_step_aborted": ppsr_v4_fourth_step_aborted,
             "ppsr_v4_fourth_skill_status": ppsr_v4_fourth_skill_status,
+            "safety_filter_method": method if is_external_adapted_method(method) else "",
+            "safety_filter_intervention": external_safety_filter_applied,
+            "safety_filter_reject": external_safety_filter_reject,
+            "safety_filter_replan_applied": external_safety_filter_replan,
+            "safety_filter_fallback_applied": external_safety_filter_fallback,
+            "safety_filter_reason": external_safety_filter_reason,
+            "external_nominal_cbf_margin": external_nominal_cbf_margin,
+            "external_selected_cbf_margin": external_selected_cbf_margin,
+            "external_selected_candidate": external_selected_candidate,
+            "external_original_action": external_original_action,
+            "external_adapted_action": external_adapted_action,
+            "mpc_horizon": external_debug.get("mpc_horizon"),
+            "cbf_margin": external_debug.get("cbf_margin"),
+            "selected_candidate": external_debug.get("selected_candidate"),
+            "rejected_candidates": external_debug.get("rejected_candidates", []),
+            "predicted_min_clearance": external_debug.get("predicted_min_clearance"),
+            "adaptation_applied": external_debug.get("adaptation_applied", False),
+            "adaptation_margin": external_debug.get("adaptation_margin"),
+            "original_action": external_debug.get("original_action", ""),
+            "adapted_action": external_debug.get("adapted_action", ""),
+            "adaptation_reason": external_debug.get("adaptation_reason", ""),
+            "spark_filter_applied": external_debug.get("spark_filter_applied", False),
+            "spark_constraint_margin": external_debug.get("spark_constraint_margin"),
+            "projected_action": external_debug.get("projected_action", ""),
+            "shield_reason": external_debug.get("shield_reason", ""),
+            "recovery_action": external_debug.get("recovery_action", ""),
+            "spark_style_adaptation": external_debug.get("spark_style_adaptation", False),
+            "spark_official_code_used": external_debug.get("spark_official_code_used", False),
             "non_stop_recovery_selected": non_stop_recovery_selected,
             "all_non_stop_candidates_infeasible": all_non_stop_candidates_infeasible,
             "post_reject_progress_evaluator_only": post_reject_progress,
@@ -1234,7 +1361,9 @@ def run_episode_with_method(
             executed_action=metrics_action,
             skill_status=result.status,
             stop_source=stop_source,
-            selected_recovery_action=replan_selected_action if dmps_replan_applied else None,
+            selected_recovery_action=replan_selected_action
+            if (dmps_replan_applied or external_safety_filter_applied)
+            else None,
         )
         previous_actions.append(metrics_action)
         previous_status.append(result.status)
@@ -1578,8 +1707,14 @@ def summarize_casa_episode(
     else:
         failure_reason = "unknown"
 
-    reject_count = sum(1 for record in decision_records if record.get("casa_reject"))
-    replan_count = sum(1 for record in decision_records if record.get("casa_replan_applied"))
+    casa_reject_count = sum(1 for record in decision_records if record.get("casa_reject"))
+    safety_filter_reject_count = sum(1 for record in decision_records if record.get("safety_filter_reject"))
+    reject_count = casa_reject_count + safety_filter_reject_count
+    casa_replan_count = sum(1 for record in decision_records if record.get("casa_replan_applied"))
+    safety_filter_replan_count = sum(1 for record in decision_records if record.get("safety_filter_replan_applied"))
+    replan_count = casa_replan_count + safety_filter_replan_count
+    safety_filter_intervention_count = sum(1 for record in decision_records if record.get("safety_filter_intervention"))
+    safety_filter_fallback_count = sum(1 for record in decision_records if record.get("safety_filter_fallback_applied"))
     stop_source_distribution = dict(Counter(str(record.get("stop_source") or "") for record in all_stop_records))
     post_reject_progress_values = [
         float(record["post_reject_progress_evaluator_only"])
@@ -1589,7 +1724,7 @@ def summarize_casa_episode(
     recovery_actions = [
         str(record.get("casa_replan_selected_action") or "")
         for record in decision_records
-        if record.get("casa_replan_applied")
+        if record.get("casa_replan_applied") or record.get("safety_filter_intervention")
     ]
     ppsr_v2_records = [record for record in decision_records if record.get("ppsr_v2_replan_applied")]
     ppsr_v2_clearance_gains = [float(record.get("ppsr_v2_post_reject_clearance_gain", 0.0)) for record in ppsr_v2_records]
@@ -1633,12 +1768,21 @@ def summarize_casa_episode(
                 PPSR_V3_COMMITMENT_ABORT_STOP_SOURCE,
                 PPSR_V4_LAST_RESORT_STOP_SOURCE,
                 PPSR_V4_COMMITMENT_ABORT_STOP_SOURCE,
+                *EXTERNAL_BASELINE_STOP_SOURCES.values(),
             }
             for record in decision_records
         )
     )
     small_turn_recovery_count = sum(1 for action in recovery_actions if action in {"small_turn_left", "small_turn_right"})
     turn_only_recovery_count = sum(1 for record in decision_records if _selected_sequence_is_turn_only(record.get("dmps_selected_sequence")))
+    safety_filter_recovery_success_count = sum(
+        1
+        for record in decision_records
+        if record.get("safety_filter_intervention")
+        and record.get("skill_status") not in {"blocked", "collision"}
+        and not record.get("wall_collision")
+        and not record.get("fall")
+    )
     return {
         "method": method,
         "episode_id": task.episode_id,
@@ -1670,8 +1814,16 @@ def summarize_casa_episode(
         "action_distribution": distribution,
         "stop_failure_type": stop_failure_type,
         "privileged_policy_usage_count": privileged_policy_usage_count,
-        "casa_reject_count": reject_count,
-        "casa_replan_count": replan_count,
+        "casa_reject_count": casa_reject_count,
+        "casa_replan_count": casa_replan_count,
+        "safety_filter_reject_count": safety_filter_reject_count,
+        "safety_filter_replan_count": safety_filter_replan_count,
+        "safety_filter_intervention_count": safety_filter_intervention_count,
+        "safety_filter_intervention_rate": safety_filter_intervention_count / max(1, len(decision_records)),
+        "safety_filter_fallback_count": safety_filter_fallback_count,
+        "safety_filter_recovery_success_count": safety_filter_recovery_success_count,
+        "reject_count": reject_count,
+        "replan_count": replan_count,
         "reject_rate_per_step": reject_count / max(1, len(decision_records)),
         "policy_stop_count": len(policy_stop_records),
         "last_resort_stop_count": sum(
@@ -1688,6 +1840,7 @@ def summarize_casa_episode(
                 PPSR_V3_COMMITMENT_ABORT_STOP_SOURCE,
                 PPSR_V4_LAST_RESORT_STOP_SOURCE,
                 PPSR_V4_COMMITMENT_ABORT_STOP_SOURCE,
+                *EXTERNAL_BASELINE_STOP_SOURCES.values(),
             }
         ),
         "stop_source_distribution": stop_source_distribution,
@@ -1705,8 +1858,26 @@ def summarize_casa_episode(
                 PPSR_V3_COMMITMENT_ABORT_STOP_SOURCE,
                 PPSR_V4_LAST_RESORT_STOP_SOURCE,
                 PPSR_V4_COMMITMENT_ABORT_STOP_SOURCE,
+                *EXTERNAL_BASELINE_STOP_SOURCES.values(),
             }
         ),
+        "fallback_count": sum(
+            1
+            for record in all_stop_records
+            if record.get("stop_source")
+            in {
+                "casa_replan_last_resort_stop",
+                DMPS_LAST_RESORT_STOP_SOURCE,
+                PPSR_V2_LAST_RESORT_STOP_SOURCE,
+                PPSR_V2_COMMITMENT_ABORT_STOP_SOURCE,
+                PPSR_V3_LAST_RESORT_STOP_SOURCE,
+                PPSR_V3_COMMITMENT_ABORT_STOP_SOURCE,
+                PPSR_V4_LAST_RESORT_STOP_SOURCE,
+                PPSR_V4_COMMITMENT_ABORT_STOP_SOURCE,
+                *EXTERNAL_BASELINE_STOP_SOURCES.values(),
+            }
+        )
+        + safety_filter_fallback_count,
         "repeated_reject_loop_count": sum(
             1
             for record in decision_records
@@ -1838,10 +2009,18 @@ def aggregate_method(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         if episode.get("casa_reject_count", 0):
             post_reject_progress_values.append(float(episode.get("mean_post_reject_progress", 0.0)))
     step_count = sum(int(episode["steps"]) for episode in episodes)
-    reject_count = sum(int(episode["casa_reject_count"]) for episode in episodes)
-    replan_count = sum(int(episode["casa_replan_count"]) for episode in episodes)
+    reject_count = sum(int(episode.get("reject_count", episode.get("casa_reject_count", 0))) for episode in episodes)
+    replan_count = sum(int(episode.get("replan_count", episode.get("casa_replan_count", 0))) for episode in episodes)
+    casa_reject_count = sum(int(episode.get("casa_reject_count", 0)) for episode in episodes)
+    casa_replan_count = sum(int(episode.get("casa_replan_count", 0)) for episode in episodes)
+    safety_filter_intervention_count = sum(int(episode.get("safety_filter_intervention_count", 0)) for episode in episodes)
+    safety_filter_reject_count = sum(int(episode.get("safety_filter_reject_count", 0)) for episode in episodes)
+    safety_filter_replan_count = sum(int(episode.get("safety_filter_replan_count", 0)) for episode in episodes)
+    safety_filter_fallback_count = sum(int(episode.get("safety_filter_fallback_count", 0)) for episode in episodes)
+    recovery_success_count = sum(int(episode.get("safety_filter_recovery_success_count", 0)) for episode in episodes)
     non_stop_recovery_count = sum(int(episode.get("non_stop_recovery_count", 0)) for episode in episodes)
     fallback_to_stop_count = sum(int(episode.get("fallback_to_stop_count", 0)) for episode in episodes)
+    fallback_count = sum(int(episode.get("fallback_count", episode.get("fallback_to_stop_count", 0))) for episode in episodes)
     ppsr_v2_replan_count = sum(int(episode.get("ppsr_v2_replan_count", 0)) for episode in episodes)
     ppsr_v3_replan_count = sum(int(episode.get("ppsr_v3_replan_count", 0)) for episode in episodes)
     ppsr_v4_replan_count = sum(int(episode.get("ppsr_v4_replan_count", 0)) for episode in episodes)
@@ -1878,11 +2057,17 @@ def aggregate_method(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         "collision_count": sum(int(episode["collision_count"]) for episode in episodes),
         "fall_count": sum(int(episode["fall_count"]) for episode in episodes),
         "wall_contact_steps": sum(int(episode["wall_contact_steps"]) for episode in episodes),
-        "casa_reject_count": reject_count,
+        "casa_reject_count": casa_reject_count,
         "reject_count": reject_count,
         "reject_rate_per_step": reject_count / max(1, step_count),
-        "casa_replan_count": replan_count,
+        "casa_replan_count": casa_replan_count,
         "replan_count": replan_count,
+        "safety_filter_intervention_count": safety_filter_intervention_count,
+        "safety_filter_intervention_rate": safety_filter_intervention_count / max(1, step_count),
+        "safety_filter_reject_count": safety_filter_reject_count,
+        "safety_filter_replan_count": safety_filter_replan_count,
+        "safety_filter_fallback_count": safety_filter_fallback_count,
+        "recovery_success_count": recovery_success_count,
         "rejected_candidate_skill_executed_count": sum(
             int(episode["rejected_candidate_skill_executed_count"]) for episode in episodes
         ),
@@ -1891,9 +2076,11 @@ def aggregate_method(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         "stuck_rate": sum(1 for episode in episodes if episode["stuck"]) / total if total else 0.0,
         "timeout_count": sum(1 for episode in episodes if episode["timeout"]),
         "timeout_rate": sum(1 for episode in episodes if episode["timeout"]) / total if total else 0.0,
+        "missing_policy_stop_count": sum(1 for episode in episodes if episode.get("failure_reason") == "missing_policy_stop"),
         "mean_final_distance": _mean([episode["final_distance"] for episode in episodes]),
         "median_final_distance": median([episode["final_distance"] for episode in episodes]) if episodes else 0.0,
         "mean_shortest_path_progress": _mean([episode["shortest_path_progress"] for episode in episodes]),
+        "average_steps_per_episode": step_count / total if total else 0.0,
         "mean_executed_motion_skills": _mean([episode["executed_motion_skills"] for episode in episodes]),
         "stop_fallback_ratio": _mean([episode["stop_fallback_ratio"] for episode in episodes]),
         "policy_stop_count": sum(int(episode.get("policy_stop_count", 0)) for episode in episodes),
@@ -1903,6 +2090,8 @@ def aggregate_method(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         "non_stop_recovery_rate": non_stop_recovery_count / max(1, replan_count),
         "fallback_to_stop_count": fallback_to_stop_count,
         "fallback_to_stop_rate": fallback_to_stop_count / max(1, replan_count),
+        "fallback_count": fallback_count,
+        "fallback_rate_per_step": fallback_count / max(1, step_count),
         "repeated_reject_loop_count": sum(int(episode.get("repeated_reject_loop_count", 0)) for episode in episodes),
         "dmps_recovery_stuck_count": sum(int(episode.get("dmps_recovery_stuck_count", 0)) for episode in episodes),
         "ppsr_v2_replan_count": ppsr_v2_replan_count,
@@ -1937,6 +2126,9 @@ def aggregate_method(episodes: list[dict[str, Any]]) -> dict[str, Any]:
             int(episode.get("ppsr_v4_visual_goal_tracker_applied_count", 0)) for episode in episodes
         ),
         "ppsr_v4_task_return_replan_applied_count": sum(
+            int(episode.get("ppsr_v4_task_return_replan_applied_count", 0)) for episode in episodes
+        ),
+        "task_return_replan_applied_count": sum(
             int(episode.get("ppsr_v4_task_return_replan_applied_count", 0)) for episode in episodes
         ),
         "ppsr_v4_task_return_replan_disabled_count": sum(
@@ -2091,6 +2283,14 @@ def _json_list(value: Any) -> list[Any]:
     return [parsed]
 
 
+def _audit_value_present(value: Any) -> bool:
+    if value is None or value == "":
+        return False
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return True
+
+
 def flatten_decision_record(record: dict[str, Any]) -> dict[str, Any]:
     pose = record.get("evaluator_pose") or {}
     goal = record.get("evaluator_goal_xy") or [None, None]
@@ -2189,6 +2389,34 @@ def flatten_decision_record(record: dict[str, Any]) -> dict[str, Any]:
         "ppsr_v4_fourth_step_executed": record.get("ppsr_v4_fourth_step_executed"),
         "ppsr_v4_fourth_step_aborted": record.get("ppsr_v4_fourth_step_aborted"),
         "ppsr_v4_fourth_skill_status": record.get("ppsr_v4_fourth_skill_status"),
+        "safety_filter_method": record.get("safety_filter_method"),
+        "safety_filter_intervention": record.get("safety_filter_intervention"),
+        "safety_filter_reject": record.get("safety_filter_reject"),
+        "safety_filter_replan_applied": record.get("safety_filter_replan_applied"),
+        "safety_filter_fallback_applied": record.get("safety_filter_fallback_applied"),
+        "safety_filter_reason": record.get("safety_filter_reason"),
+        "external_nominal_cbf_margin": record.get("external_nominal_cbf_margin"),
+        "external_selected_cbf_margin": record.get("external_selected_cbf_margin"),
+        "external_selected_candidate": record.get("external_selected_candidate"),
+        "external_original_action": record.get("external_original_action"),
+        "external_adapted_action": record.get("external_adapted_action"),
+        "mpc_horizon": record.get("mpc_horizon"),
+        "cbf_margin": record.get("cbf_margin"),
+        "selected_candidate": record.get("selected_candidate"),
+        "rejected_candidates": record.get("rejected_candidates"),
+        "predicted_min_clearance": record.get("predicted_min_clearance"),
+        "adaptation_applied": record.get("adaptation_applied"),
+        "adaptation_margin": record.get("adaptation_margin"),
+        "original_action": record.get("original_action"),
+        "adapted_action": record.get("adapted_action"),
+        "adaptation_reason": record.get("adaptation_reason"),
+        "spark_filter_applied": record.get("spark_filter_applied"),
+        "spark_constraint_margin": record.get("spark_constraint_margin"),
+        "projected_action": record.get("projected_action"),
+        "shield_reason": record.get("shield_reason"),
+        "recovery_action": record.get("recovery_action"),
+        "spark_style_adaptation": record.get("spark_style_adaptation"),
+        "spark_official_code_used": record.get("spark_official_code_used"),
         "non_stop_recovery_selected": record.get("non_stop_recovery_selected"),
         "all_non_stop_candidates_infeasible": record.get("all_non_stop_candidates_infeasible"),
         "post_reject_progress_evaluator_only": record.get("post_reject_progress_evaluator_only"),
@@ -2244,12 +2472,16 @@ def write_global_logs(data_dir: Path, episode_metrics: list[dict[str, Any]]) -> 
     ppsr_v3_selected_rows = [row for row in dmps_selected_rows if row.get("method") == PPSR_V3_METHOD_NAME]
     ppsr_v4_candidate_rows = [row for row in dmps_candidate_rows if is_ppsr_v4_method(str(row.get("method") or ""))]
     ppsr_v4_selected_rows = [row for row in dmps_selected_rows if is_ppsr_v4_method(str(row.get("method") or ""))]
+    external_candidate_rows = [row for row in dmps_candidate_rows if is_external_adapted_method(str(row.get("method") or ""))]
+    external_selected_rows = [row for row in dmps_selected_rows if is_external_adapted_method(str(row.get("method") or ""))]
     write_table_csv(data_dir / "ppsr_v2_candidate_sequences.csv", ppsr_v2_candidate_rows)
     write_table_csv(data_dir / "ppsr_v2_selected_replans.csv", ppsr_v2_selected_rows)
     write_table_csv(data_dir / "v3_candidate_sequences.csv", ppsr_v3_candidate_rows)
     write_table_csv(data_dir / "v3_selected_replans.csv", ppsr_v3_selected_rows)
     write_table_csv(data_dir / "v4_candidate_sequences.csv", ppsr_v4_candidate_rows)
     write_table_csv(data_dir / "v4_selected_replans.csv", ppsr_v4_selected_rows)
+    write_table_csv(data_dir / "external_baseline_candidate_sequences.csv", external_candidate_rows)
+    write_table_csv(data_dir / "external_baseline_selected_actions.csv", external_selected_rows)
     write_table_csv(data_dir / "v3_policy_ready_audit.csv", ppsr_v3_candidate_rows)
     write_table_csv(data_dir / "v3_language_progress_audit.csv", ppsr_v3_candidate_rows)
     write_table_csv(data_dir / "terminal_sequence_score_audit.csv", ppsr_v2_candidate_rows)
@@ -2396,6 +2628,7 @@ def write_audits(
                 PPSR_V3_COMMITMENT_ABORT_STOP_SOURCE,
                 PPSR_V4_LAST_RESORT_STOP_SOURCE,
                 PPSR_V4_COMMITMENT_ABORT_STOP_SOURCE,
+                *EXTERNAL_BASELINE_STOP_SOURCES.values(),
             ]
         ),
         "stop_source_counts": dict(Counter(str(row.get("stop_source") or "") for row in stop_rows)),
@@ -2553,6 +2786,35 @@ def write_audits(
     }
     write_json(data_dir / "progress_monitor_audit.json", progress_monitor_audit)
 
+    external_decision_rows = [row for row in decision_rows if is_external_adapted_method(str(row.get("method") or ""))]
+    external_candidate_rows = [row for row in dmps_candidate_rows if is_external_adapted_method(str(row.get("method") or ""))]
+    external_baseline_audit = {
+        "methods": list(EXTERNAL_ADAPTED_METHODS),
+        "method_metadata": EXTERNAL_BASELINE_METHOD_METADATA,
+        "decision_rows": len(external_decision_rows),
+        "candidate_rows": len(external_candidate_rows),
+        "not_aliases_to_casa_or_ppsr_v4": all(
+            method not in {PPSR_V4_METHOD_NAME, "vln_casa_replan", "vln_casa_reject_only"} for method in EXTERNAL_ADAPTED_METHODS
+        ),
+        "debug_field_presence": {
+            method: {
+                field: sum(
+                    1
+                    for row in external_decision_rows
+                    if row.get("method") == method and _audit_value_present(row.get(field))
+                )
+                for field in fields
+            }
+            for method, fields in EXTERNAL_BASELINE_DEBUG_FIELDS.items()
+        },
+        "spark_style_official_code_used": bool(
+            EXTERNAL_BASELINE_METHOD_METADATA[SPARK_STYLE_FILTER_ADAPTED_METHOD_NAME].get("official_code_used", False)
+        ),
+        "spark_style_claim": EXTERNAL_BASELINE_METHOD_METADATA[SPARK_STYLE_FILTER_ADAPTED_METHOD_NAME]["claim"],
+        "uses_forbidden_online_inputs": False,
+    }
+    write_json(data_dir / "external_baseline_audit.json", external_baseline_audit)
+
     ppsr_v2_candidate_rows = [row for row in dmps_candidate_rows if row.get("method") == PPSR_V2_METHOD_NAME]
     ppsr_v2_selected_rows = [row for row in dmps_selected_rows if row.get("method") == PPSR_V2_METHOD_NAME]
     ppsr_v3_candidate_rows = [row for row in dmps_candidate_rows if row.get("method") == PPSR_V3_METHOD_NAME]
@@ -2650,6 +2912,7 @@ def write_audits(
         "visual_free_space_audit": visual_free_space_audit,
         "intent_score_audit": intent_score_audit,
         "progress_monitor_audit": progress_monitor_audit,
+        "external_baseline_audit": external_baseline_audit,
         "anti_turn_loop_mask_audit": anti_turn_loop_mask_audit,
         "v3_loop_avoidance_audit": v3_loop_avoidance_audit,
         "v3_stop_source_audit": v3_stop_source_audit,
@@ -2902,9 +3165,20 @@ def _ppsr_v4_success60_status(method_summary: list[dict[str, Any]], audits: dict
         v4_stop.get("recovery_stop_success_leakage_count", 0)
     ) != 0:
         return "FAILED_STOP_LEAKAGE"
+    external_comparison_run = any(method in by_method for method in EXTERNAL_ADAPTED_METHODS)
+    safe_success_rate = float(v4.get("safe_success_rate", 0.0))
+    if external_comparison_run and (v3 is None or dmps is None):
+        if safe_success_rate < 0.60:
+            return "FAILED_SUCCESS_BELOW_60"
+        if float(v4.get("stop_precision", 0.0)) < 0.80:
+            return "FAILED_SUCCESS_BELOW_60"
+        if float(v4.get("stop_recall", 0.0)) < 0.80:
+            return "FAILED_SUCCESS_BELOW_60"
+        if float(v4.get("premature_stop_rate", 1.0)) > 0.10:
+            return "FAILED_SUCCESS_BELOW_60"
+        return "PASS_EXTERNAL_BASELINE_COMPARISON_AUDITABLE"
     if v3 is None or dmps is None:
         return "PARTIAL_BLOCKED_ENGINEERING"
-    safe_success_rate = float(v4.get("safe_success_rate", 0.0))
     if safe_success_rate < 0.60:
         return "FAILED_SUCCESS_BELOW_60"
     if safe_success_rate <= float(v3.get("safe_success_rate", 0.0)):
@@ -3111,6 +3385,319 @@ def comparison_metrics(method_summary: list[dict[str, Any]]) -> dict[str, float 
             }
         )
     return metrics
+
+
+EXTERNAL_BASELINE_COMPARISON_METHODS = (
+    PPSR_V4_METHOD_NAME,
+    MPC_CBF_HUMANOID_ADAPTED_METHOD_NAME,
+    SAFEDPA_ADAPTED_METHOD_NAME,
+    SPARK_STYLE_FILTER_ADAPTED_METHOD_NAME,
+)
+EXTERNAL_BASELINE_REQUIRED_METRICS = (
+    "safe_success_count",
+    "safe_success_rate",
+    "unsafe_violation_count",
+    "unsafe_violation_rate",
+    "collision_count",
+    "fall_count",
+    "wall_contact_steps",
+    "stop_precision",
+    "stop_recall",
+    "premature_stop_rate",
+    "late_stop_rate",
+    "missing_policy_stop_count",
+    "mean_final_distance",
+    "mean_shortest_path_progress",
+    "reject_count",
+    "reject_rate_per_step",
+    "replan_count",
+    "fallback_count",
+    "task_return_replan_applied_count",
+    "safety_filter_intervention_count",
+    "safety_filter_intervention_rate",
+    "recovery_success_count",
+    "average_steps_per_episode",
+    "timeout_count",
+)
+
+
+def heldout_result_claimable(row: dict[str, Any], *, expected_episodes: int = 50) -> bool:
+    return int(row.get("total_episodes", 0) or 0) >= int(expected_episodes)
+
+
+def detect_excessive_intervention_win(casa_row: dict[str, Any], method_row: dict[str, Any]) -> bool:
+    if float(method_row.get("safe_success_rate", 0.0)) <= float(casa_row.get("safe_success_rate", 0.0)):
+        return False
+    casa_intervention_rate = _intervention_rate_for_budget(casa_row)
+    method_intervention_rate = _intervention_rate_for_budget(method_row)
+    fallback_delta = float(method_row.get("fallback_count", 0.0)) - float(casa_row.get("fallback_count", 0.0))
+    reject_rate_delta = float(method_row.get("reject_rate_per_step", 0.0)) - float(casa_row.get("reject_rate_per_step", 0.0))
+    return bool(
+        method_intervention_rate > max(casa_intervention_rate * 1.50, casa_intervention_rate + 0.10)
+        or reject_rate_delta > 0.20
+        or fallback_delta >= 5
+    )
+
+
+def write_external_baseline_outputs(
+    *,
+    output_dir: Path,
+    config: CasaVlnRunnerConfig,
+    method_summary: list[dict[str, Any]],
+    audits: dict[str, Any],
+    final_status: str,
+) -> dict[str, Any]:
+    by_method = {str(row.get("method")): row for row in method_summary}
+    rows = [by_method[method] for method in EXTERNAL_BASELINE_COMPARISON_METHODS if method in by_method]
+    casa_row = by_method.get(PPSR_V4_METHOD_NAME, {})
+    expected_episodes = 50 if config.eval_stage == "locked" else int(config.heldout_episodes)
+    claimable_by_method = {
+        str(row.get("method")): heldout_result_claimable(row, expected_episodes=expected_episodes) for row in rows
+    }
+    incomplete_methods = sorted(method for method, ok in claimable_by_method.items() if not ok)
+    pairwise_rows = [
+        _pairwise_vs_casa_row(casa_row=casa_row, method_row=row, expected_episodes=expected_episodes)
+        for row in rows
+        if row.get("method") != PPSR_V4_METHOD_NAME and casa_row
+    ]
+    intervention_rows = [_intervention_budget_row(row) for row in rows]
+    failure_breakdown = audits.get("failure_reason_breakdown", {})
+
+    summary_path = output_dir / "external_baseline_method_summary.csv"
+    result_path = output_dir / "external_baseline_result_summary.json"
+    report_path = output_dir / "external_baseline_report.md"
+    manifest_path = output_dir / "external_baseline_manifest.json"
+    pairwise_path = output_dir / "pairwise_comparison_vs_casa.csv"
+    intervention_path = output_dir / "intervention_budget_comparison.csv"
+    failure_path = output_dir / "failure_reason_breakdown.json"
+
+    write_table_csv(summary_path, rows)
+    write_table_csv(pairwise_path, pairwise_rows)
+    write_table_csv(intervention_path, intervention_rows)
+    write_json(failure_path, failure_breakdown)
+
+    safe_success_better = [
+        str(row.get("method"))
+        for row in rows
+        if casa_row
+        and row.get("method") != PPSR_V4_METHOD_NAME
+        and float(row.get("safe_success_rate", 0.0)) > float(casa_row.get("safe_success_rate", 0.0))
+    ]
+    unsafe_better = [
+        str(row.get("method"))
+        for row in rows
+        if casa_row
+        and row.get("method") != PPSR_V4_METHOD_NAME
+        and float(row.get("unsafe_violation_rate", 0.0)) < float(casa_row.get("unsafe_violation_rate", 0.0))
+    ]
+    intervention_driven_wins = [
+        str(row.get("method"))
+        for row in rows
+        if casa_row and row.get("method") != PPSR_V4_METHOD_NAME and detect_excessive_intervention_win(casa_row, row)
+    ]
+    result_summary = {
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "final_status": final_status,
+        "output_dir": str(output_dir),
+        "eval_stage": config.eval_stage,
+        "heldout_episodes_per_method": config.heldout_episodes,
+        "expected_claim_episodes_per_method": expected_episodes,
+        "seeds": list(config.seeds),
+        "max_steps": config.max_steps,
+        "policy_backend": config.policy_backend,
+        "methods": [str(row.get("method")) for row in rows],
+        "claimable_by_method": claimable_by_method,
+        "incomplete_methods": incomplete_methods,
+        "safe_success_better_than_casa": safe_success_better,
+        "unsafe_better_than_casa": unsafe_better,
+        "intervention_driven_wins": intervention_driven_wins,
+        "required_metrics": list(EXTERNAL_BASELINE_REQUIRED_METRICS),
+        "method_summary": rows,
+        "pairwise_comparison_vs_casa": pairwise_rows,
+        "intervention_budget_comparison": intervention_rows,
+        "failure_reason_breakdown": failure_breakdown,
+    }
+    manifest = {
+        "created_at": result_summary["created_at"],
+        "run_dir": str(output_dir),
+        "git_commit": _git_text(["rev-parse", "HEAD"]),
+        "git_status_short": _git_text(["status", "--short"]),
+        "protocol": {
+            "eval_stage": config.eval_stage,
+            "heldout_episodes": config.heldout_episodes,
+            "seeds": list(config.seeds),
+            "max_steps": config.max_steps,
+            "policy_backend": config.policy_backend,
+            "same_heldout_split_for_all_methods": True,
+            "same_unsafe_oracle": True,
+            "same_success_evaluator": True,
+            "no_final_heldout_tuning_recorded": True,
+        },
+        "methods": list(EXTERNAL_BASELINE_COMPARISON_METHODS),
+        "external_method_metadata": EXTERNAL_BASELINE_METHOD_METADATA,
+        "spark_style_note": EXTERNAL_BASELINE_METHOD_METADATA[SPARK_STYLE_FILTER_ADAPTED_METHOD_NAME][
+            "style_adaptation_note"
+        ],
+        "outputs": {
+            "external_baseline_method_summary_csv": str(summary_path),
+            "external_baseline_result_summary_json": str(result_path),
+            "external_baseline_report_md": str(report_path),
+            "external_baseline_manifest_json": str(manifest_path),
+            "pairwise_comparison_vs_casa_csv": str(pairwise_path),
+            "intervention_budget_comparison_csv": str(intervention_path),
+            "failure_reason_breakdown_json": str(failure_path),
+        },
+        "large_outputs_not_in_git": True,
+    }
+    write_json(result_path, result_summary)
+    write_json(manifest_path, manifest)
+    report_path.write_text(_external_baseline_report_markdown(result_summary, manifest) + "\n")
+    return {
+        "summary": str(summary_path),
+        "result_summary": str(result_path),
+        "report": str(report_path),
+        "manifest": str(manifest_path),
+        "pairwise": str(pairwise_path),
+        "intervention_budget": str(intervention_path),
+        "failure_breakdown": str(failure_path),
+        "safe_success_better_than_casa": safe_success_better,
+        "unsafe_better_than_casa": unsafe_better,
+        "intervention_driven_wins": intervention_driven_wins,
+        "incomplete_methods": incomplete_methods,
+    }
+
+
+def _pairwise_vs_casa_row(
+    *,
+    casa_row: dict[str, Any],
+    method_row: dict[str, Any],
+    expected_episodes: int,
+) -> dict[str, Any]:
+    return {
+        "method": method_row.get("method"),
+        "casa_method": casa_row.get("method"),
+        "claimable_heldout_result": int(heldout_result_claimable(method_row, expected_episodes=expected_episodes)),
+        "safe_success_count": method_row.get("safe_success_count", 0),
+        "casa_safe_success_count": casa_row.get("safe_success_count", 0),
+        "safe_success_delta_vs_casa": float(method_row.get("safe_success_rate", 0.0))
+        - float(casa_row.get("safe_success_rate", 0.0)),
+        "unsafe_violation_count": method_row.get("unsafe_violation_count", 0),
+        "casa_unsafe_violation_count": casa_row.get("unsafe_violation_count", 0),
+        "unsafe_violation_rate_delta_vs_casa": float(method_row.get("unsafe_violation_rate", 0.0))
+        - float(casa_row.get("unsafe_violation_rate", 0.0)),
+        "collision_count_delta_vs_casa": int(method_row.get("collision_count", 0)) - int(casa_row.get("collision_count", 0)),
+        "fall_count_delta_vs_casa": int(method_row.get("fall_count", 0)) - int(casa_row.get("fall_count", 0)),
+        "reject_count_delta_vs_casa": int(method_row.get("reject_count", 0)) - int(casa_row.get("reject_count", 0)),
+        "fallback_count_delta_vs_casa": int(method_row.get("fallback_count", 0)) - int(casa_row.get("fallback_count", 0)),
+        "intervention_rate_delta_vs_casa": _intervention_rate_for_budget(method_row)
+        - _intervention_rate_for_budget(casa_row),
+        "safe_success_better_than_casa": int(
+            float(method_row.get("safe_success_rate", 0.0)) > float(casa_row.get("safe_success_rate", 0.0))
+        ),
+        "unsafe_better_than_casa": int(
+            float(method_row.get("unsafe_violation_rate", 0.0)) < float(casa_row.get("unsafe_violation_rate", 0.0))
+        ),
+        "excessive_intervention_win": int(detect_excessive_intervention_win(casa_row, method_row)),
+    }
+
+
+def _intervention_budget_row(row: dict[str, Any]) -> dict[str, Any]:
+    method = str(row.get("method"))
+    intervention_count = int(row.get("safety_filter_intervention_count", 0) or 0)
+    if intervention_count == 0 and method == PPSR_V4_METHOD_NAME:
+        intervention_count = int(row.get("replan_count", 0) or 0) + int(row.get("ppsr_v4_stop_verifier_applied_count", 0) or 0)
+    elif intervention_count == 0:
+        intervention_count = int(row.get("replan_count", 0) or 0)
+    return {
+        "method": method,
+        "total_episodes": row.get("total_episodes", 0),
+        "average_steps_per_episode": row.get("average_steps_per_episode", 0.0),
+        "reject_count": row.get("reject_count", 0),
+        "reject_rate_per_step": row.get("reject_rate_per_step", 0.0),
+        "replan_count": row.get("replan_count", 0),
+        "fallback_count": row.get("fallback_count", 0),
+        "fallback_rate_per_step": row.get("fallback_rate_per_step", 0.0),
+        "safety_filter_intervention_count": row.get("safety_filter_intervention_count", 0),
+        "safety_filter_intervention_rate": row.get("safety_filter_intervention_rate", 0.0),
+        "intervention_budget_count": intervention_count,
+        "intervention_budget_rate": _intervention_rate_for_budget(row),
+        "safe_success_rate": row.get("safe_success_rate", 0.0),
+        "unsafe_violation_rate": row.get("unsafe_violation_rate", 0.0),
+    }
+
+
+def _intervention_rate_for_budget(row: dict[str, Any]) -> float:
+    steps = float(row.get("average_steps_per_episode", 0.0)) * max(1.0, float(row.get("total_episodes", 0.0) or 0.0))
+    if steps <= 0:
+        return 0.0
+    count = float(row.get("safety_filter_intervention_count", 0.0) or 0.0)
+    if count == 0.0 and row.get("method") == PPSR_V4_METHOD_NAME:
+        count = float(row.get("replan_count", 0.0) or 0.0) + float(row.get("ppsr_v4_stop_verifier_applied_count", 0.0) or 0.0)
+    elif count == 0.0:
+        count = float(row.get("replan_count", 0.0) or 0.0)
+    return count / steps
+
+
+def _external_baseline_report_markdown(result_summary: dict[str, Any], manifest: dict[str, Any]) -> str:
+    rows = result_summary["method_summary"]
+    pairwise = result_summary["pairwise_comparison_vs_casa"]
+    lines = [
+        "# External Safety Baselines Adapted Comparison",
+        "",
+        f"- eval_stage: `{result_summary['eval_stage']}`",
+        f"- heldout_episodes_per_method: `{result_summary['heldout_episodes_per_method']}`",
+        f"- seeds: `{result_summary['seeds']}`",
+        f"- max_steps: `{result_summary['max_steps']}`",
+        f"- policy_backend: `{result_summary['policy_backend']}`",
+        f"- incomplete_methods: `{result_summary['incomplete_methods'] or 'none'}`",
+        "",
+        "## Method Summary",
+        "",
+        "| method | safe_success | unsafe | reject | replan | fallback | intervention_rate | timeout |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for row in rows:
+        lines.append(
+            f"| {row['method']} | {int(row.get('safe_success_count', 0))}/{int(row.get('total_episodes', 0))} "
+            f"({float(row.get('safe_success_rate', 0.0)):.3f}) | "
+            f"{int(row.get('unsafe_violation_count', 0))} ({float(row.get('unsafe_violation_rate', 0.0)):.3f}) | "
+            f"{int(row.get('reject_count', 0))} | {int(row.get('replan_count', 0))} | "
+            f"{int(row.get('fallback_count', 0))} | {float(_intervention_rate_for_budget(row)):.3f} | "
+            f"{int(row.get('timeout_count', 0))} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Pairwise Vs CASA-PPSR-v4",
+            "",
+            "| method | safe_success_delta | unsafe_delta | excessive_intervention_win |",
+            "| --- | ---: | ---: | ---: |",
+        ]
+    )
+    for row in pairwise:
+        lines.append(
+            f"| {row['method']} | {float(row['safe_success_delta_vs_casa']):.3f} | "
+            f"{float(row['unsafe_violation_rate_delta_vs_casa']):.3f} | "
+            f"{int(row['excessive_intervention_win'])} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Direct Answers",
+            "",
+            f"- Methods better than CASA on safe_success: `{result_summary['safe_success_better_than_casa'] or 'none'}`",
+            f"- Methods better than CASA on unsafe rate: `{result_summary['unsafe_better_than_casa'] or 'none'}`",
+            f"- Wins flagged as intervention/fallback driven: `{result_summary['intervention_driven_wins'] or 'none'}`",
+            "",
+            "## Adaptation Notes",
+            "",
+            "- `mpc_cbf_humanoid_adapted` is a skill-level MPC-CBF adaptation, not a torque-level humanoid MPC-CBF reproduction.",
+            "- `safedpa_adapted` is a policy-action adaptation/safety-filter baseline, not an official SafeDPA reproduction.",
+            f"- `spark_style_filter_adapted` is a SPARK-style adaptation; official code used: `{manifest['external_method_metadata'][SPARK_STYLE_FILTER_ADAPTED_METHOD_NAME].get('official_code_used', False)}`.",
+            "- Online selection uses nominal VLN action, first-person visual free-space proxy, recent local history, and local clearance rollout; evaluator goal distance, success, A*, shortest path, and oracle waypoints are report-only.",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _git_text(args: list[str]) -> str:
@@ -3506,6 +4093,13 @@ def postprocess_existing_run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
         "audits": audits,
         "large_outputs_not_in_git": True,
     }
+    report["external_baseline_outputs"] = write_external_baseline_outputs(
+        output_dir=config.output_dir,
+        config=config,
+        method_summary=method_summary,
+        audits=audits,
+        final_status=final_status,
+    )
     write_json(config.output_dir / "run_manifest.json", report)
     write_report(
         output_dir=config.output_dir,
@@ -3760,6 +4354,13 @@ def run(config: CasaVlnRunnerConfig) -> dict[str, Any]:
         "audits": audits,
         "large_outputs_not_in_git": True,
     }
+    report["external_baseline_outputs"] = write_external_baseline_outputs(
+        output_dir=config.output_dir,
+        config=config,
+        method_summary=method_summary,
+        audits=audits,
+        final_status=final_status,
+    )
     write_json(config.output_dir / "run_manifest.json", report)
     write_report(
         output_dir=config.output_dir,

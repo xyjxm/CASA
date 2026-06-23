@@ -46,6 +46,90 @@ PPSR_V4_ABLATION_METHODS = (
 PPSR_V4_METHODS = (PPSR_V4_METHOD_NAME, *PPSR_V4_ABLATION_METHODS)
 PPSR_V4_LAST_RESORT_STOP_SOURCE = "ppsr_v4_last_resort_stop"
 PPSR_V4_COMMITMENT_ABORT_STOP_SOURCE = "ppsr_v4_commitment_abort_stop"
+MPC_CBF_HUMANOID_ADAPTED_METHOD_NAME = "mpc_cbf_humanoid_adapted"
+SAFEDPA_ADAPTED_METHOD_NAME = "safedpa_adapted"
+SPARK_STYLE_FILTER_ADAPTED_METHOD_NAME = "spark_style_filter_adapted"
+EXTERNAL_ADAPTED_METHODS = (
+    MPC_CBF_HUMANOID_ADAPTED_METHOD_NAME,
+    SAFEDPA_ADAPTED_METHOD_NAME,
+    SPARK_STYLE_FILTER_ADAPTED_METHOD_NAME,
+)
+EXTERNAL_BASELINE_STOP_SOURCES = {
+    MPC_CBF_HUMANOID_ADAPTED_METHOD_NAME: "mpc_cbf_humanoid_adapted_last_resort_stop",
+    SAFEDPA_ADAPTED_METHOD_NAME: "safedpa_adapted_last_resort_stop",
+    SPARK_STYLE_FILTER_ADAPTED_METHOD_NAME: "spark_style_filter_adapted_last_resort_stop",
+}
+EXTERNAL_BASELINE_DEBUG_FIELDS = {
+    MPC_CBF_HUMANOID_ADAPTED_METHOD_NAME: (
+        "mpc_horizon",
+        "cbf_margin",
+        "selected_candidate",
+        "rejected_candidates",
+        "predicted_min_clearance",
+    ),
+    SAFEDPA_ADAPTED_METHOD_NAME: (
+        "adaptation_applied",
+        "adaptation_margin",
+        "original_action",
+        "adapted_action",
+        "adaptation_reason",
+    ),
+    SPARK_STYLE_FILTER_ADAPTED_METHOD_NAME: (
+        "spark_filter_applied",
+        "spark_constraint_margin",
+        "projected_action",
+        "shield_reason",
+        "recovery_action",
+    ),
+}
+EXTERNAL_BASELINE_METHOD_METADATA = {
+    MPC_CBF_HUMANOID_ADAPTED_METHOD_NAME: {
+        "claim": "adapted baseline",
+        "official_reproduction": False,
+        "online_inputs": [
+            "nominal_vln_action",
+            "robot_local_pose",
+            "local_occupancy_clearance",
+            "head_camera_free_space_proxy",
+            "recent_action_status_history",
+        ],
+        "filter_action": "short-horizon skill rollout with discrete CBF clearance barrier; select the highest-scoring feasible candidate.",
+        "fallback_strategy": "fall back to a non-success last-resort stop only if no non-stop CBF-feasible candidate exists.",
+    },
+    SAFEDPA_ADAPTED_METHOD_NAME: {
+        "claim": "adapted baseline",
+        "official_reproduction": False,
+        "online_inputs": [
+            "nominal_vln_action",
+            "robot_local_pose",
+            "local_occupancy_clearance",
+            "head_camera_free_space_proxy",
+            "recent_action_status_history",
+        ],
+        "filter_action": "policy action adaptation: project an unsafe or low-margin nominal action to the closest safe action.",
+        "fallback_strategy": "prefer minimal action correction; use non-success stop only when every correction is infeasible.",
+    },
+    SPARK_STYLE_FILTER_ADAPTED_METHOD_NAME: {
+        "claim": "SPARK-style adaptation",
+        "official_reproduction": False,
+        "official_code_used": False,
+        "online_inputs": [
+            "nominal_vln_action",
+            "robot_local_pose",
+            "local_occupancy_clearance",
+            "head_camera_free_space_proxy",
+            "recent_action_status_history",
+        ],
+        "constraints": [
+            "minimum local clearance margin",
+            "no predicted wall contact along skill rollout",
+            "avoid repeated rejected/fallback actions when possible",
+        ],
+        "filter_action": "runtime shield rejects unsafe nominal actions, projects to a safe local action, or selects a recovery.",
+        "fallback_strategy": "project first, then recover with backoff/open-space/turn behavior, then non-success stop as last resort.",
+        "style_adaptation_note": "This is a SPARK-style runtime safety filter adaptation for SONIC VLN, not an official SPARK reproduction.",
+    },
+}
 
 
 DEFAULT_SCORE_WEIGHTS = {
@@ -226,6 +310,26 @@ class DmpsSelection:
     policy_ready_candidate_exists: bool = False
 
 
+@dataclass(frozen=True)
+class ExternalSafetySelection:
+    method: str
+    selected_action: str
+    selected_skill: SonicSkill
+    selected_sequence: CandidateSequence
+    selected_rollout: RolloutResult
+    nominal_sequence: CandidateSequence
+    nominal_rollout: RolloutResult
+    intervention_applied: bool
+    reject_applied: bool
+    replan_applied: bool
+    fallback_applied: bool
+    stop_source: str
+    selection_reason: str
+    candidate_rows: list[dict[str, Any]]
+    rollout_rows: list[dict[str, Any]]
+    debug: dict[str, Any]
+
+
 def normalize_dmps_method(method: str) -> str:
     if method == DMPS_ALIAS:
         return DMPS_METHOD_NAME
@@ -252,6 +356,22 @@ def is_ppsr_v3_method(method: str) -> bool:
 
 def is_ppsr_v4_method(method: str) -> bool:
     return normalize_dmps_method(method) in PPSR_V4_METHODS
+
+
+def is_external_adapted_method(method: str) -> bool:
+    return normalize_dmps_method(method) in EXTERNAL_ADAPTED_METHODS
+
+
+def is_mpc_cbf_humanoid_adapted_method(method: str) -> bool:
+    return normalize_dmps_method(method) == MPC_CBF_HUMANOID_ADAPTED_METHOD_NAME
+
+
+def is_safedpa_adapted_method(method: str) -> bool:
+    return normalize_dmps_method(method) == SAFEDPA_ADAPTED_METHOD_NAME
+
+
+def is_spark_style_filter_adapted_method(method: str) -> bool:
+    return normalize_dmps_method(method) == SPARK_STYLE_FILTER_ADAPTED_METHOD_NAME
 
 
 def ppsr_v4_task_return_replan_enabled(method: str) -> bool:
@@ -552,6 +672,796 @@ def skill_for_recovery_action(action: str, heading: float) -> SonicSkill:
     if action == "stop_as_last_resort":
         return PassiveSkill(duration=0.20, mode="stop")
     raise ValueError(f"unknown recovery action: {action}")
+
+
+def select_external_adapted_baseline(
+    *,
+    method: str,
+    pose: RobotPose2D,
+    maze: MazeMap,
+    robot_radius: float,
+    nominal_action: VLNAction,
+    nominal_skill: SonicSkill,
+    image_path: str | Path | None,
+    progress_monitor: ProgressMonitor,
+    step_idx: int,
+    safety_margin: float,
+    horizon: int = 3,
+) -> ExternalSafetySelection:
+    canonical = normalize_dmps_method(method)
+    if canonical not in EXTERNAL_ADAPTED_METHODS:
+        raise ValueError(f"unsupported external adapted baseline method: {method}")
+
+    nominal_recovery_action = _nominal_recovery_action(nominal_action)
+    nominal_sequence = CandidateSequence(
+        sequence_id=f"{canonical}_nominal_{nominal_recovery_action}",
+        actions=(nominal_recovery_action,),
+        skills=(nominal_skill,),
+        stop_as_last_resort=nominal_action is VLNAction.STOP,
+    )
+    nominal_rollout = rollout_candidate_sequence(
+        candidate=nominal_sequence,
+        start_pose=pose,
+        maze=maze,
+        robot_radius=robot_radius,
+        safety_margin=safety_margin,
+    )
+    visual = compute_visual_free_space(image_path)
+    penalties = progress_monitor.penalties_for_candidate(
+        nominal_action=nominal_action.value,
+        candidate_sequence=[nominal_recovery_action],
+    )
+
+    if canonical == MPC_CBF_HUMANOID_ADAPTED_METHOD_NAME:
+        return _select_mpc_cbf_humanoid_adapted(
+            method=canonical,
+            pose=pose,
+            maze=maze,
+            robot_radius=robot_radius,
+            nominal_action=nominal_action,
+            nominal_skill=nominal_skill,
+            nominal_sequence=nominal_sequence,
+            nominal_rollout=nominal_rollout,
+            visual_free_space=visual,
+            progress_monitor=progress_monitor,
+            penalties=penalties,
+            step_idx=step_idx,
+            safety_margin=safety_margin,
+            horizon=horizon,
+        )
+    if canonical == SAFEDPA_ADAPTED_METHOD_NAME:
+        return _select_safedpa_adapted(
+            method=canonical,
+            pose=pose,
+            maze=maze,
+            robot_radius=robot_radius,
+            nominal_action=nominal_action,
+            nominal_skill=nominal_skill,
+            nominal_sequence=nominal_sequence,
+            nominal_rollout=nominal_rollout,
+            visual_free_space=visual,
+            progress_monitor=progress_monitor,
+            penalties=penalties,
+            step_idx=step_idx,
+            safety_margin=safety_margin,
+        )
+    return _select_spark_style_filter_adapted(
+        method=canonical,
+        pose=pose,
+        maze=maze,
+        robot_radius=robot_radius,
+        nominal_action=nominal_action,
+        nominal_skill=nominal_skill,
+        nominal_sequence=nominal_sequence,
+        nominal_rollout=nominal_rollout,
+        visual_free_space=visual,
+        progress_monitor=progress_monitor,
+        penalties=penalties,
+        step_idx=step_idx,
+        safety_margin=safety_margin,
+    )
+
+
+def _select_mpc_cbf_humanoid_adapted(
+    *,
+    method: str,
+    pose: RobotPose2D,
+    maze: MazeMap,
+    robot_radius: float,
+    nominal_action: VLNAction,
+    nominal_skill: SonicSkill,
+    nominal_sequence: CandidateSequence,
+    nominal_rollout: RolloutResult,
+    visual_free_space: dict[str, Any],
+    progress_monitor: ProgressMonitor,
+    penalties: dict[str, float],
+    step_idx: int,
+    safety_margin: float,
+    horizon: int,
+) -> ExternalSafetySelection:
+    del nominal_skill
+    candidates = _build_mpc_cbf_humanoid_candidates(pose=pose, nominal_action=nominal_action, horizon=horizon)
+    scored = _external_scored_rollouts(
+        method=method,
+        candidates=candidates,
+        pose=pose,
+        maze=maze,
+        robot_radius=robot_radius,
+        nominal_action=nominal_action,
+        visual_free_space=visual_free_space,
+        progress_monitor=progress_monitor,
+        step_idx=step_idx,
+        safety_margin=safety_margin,
+        scoring_mode="mpc_cbf",
+    )
+    nominal_safe = _nominal_action_safe(nominal_action=nominal_action, nominal_rollout=nominal_rollout)
+    if nominal_safe:
+        selected_sequence = nominal_sequence
+        selected_rollout = nominal_rollout
+        selected_score = 0.0
+        reason = "nominal_cbf_feasible"
+    else:
+        non_stop_safe = [item for item in scored if item[2].safety_feasible and not item[0].stop_as_last_resort]
+        stop_candidates = [item for item in scored if item[0].stop_as_last_resort]
+        if non_stop_safe:
+            selected_sequence, selected_score, selected_rollout = sorted(non_stop_safe, key=lambda item: item[1], reverse=True)[0]
+            reason = "best_short_horizon_cbf_feasible_candidate"
+        elif stop_candidates:
+            selected_sequence, selected_score, selected_rollout = stop_candidates[0]
+            reason = "all_non_stop_cbf_candidates_infeasible"
+        else:
+            selected_sequence = _stop_sequence(method, pose.yaw_deg)
+            selected_rollout = rollout_candidate_sequence(
+                candidate=selected_sequence,
+                start_pose=pose,
+                maze=maze,
+                robot_radius=robot_radius,
+                safety_margin=safety_margin,
+            )
+            selected_score = -1e6
+            reason = "candidate_generation_empty_last_resort_stop"
+    intervention = selected_sequence.sequence_id != nominal_sequence.sequence_id
+    candidate_rows, rollout_rows = _external_rows(
+        method=method,
+        step_idx=step_idx,
+        nominal_action=nominal_action,
+        scored=scored,
+        selected_sequence=selected_sequence,
+        selection_reason=reason,
+    )
+    rejected = [candidate.sequence_id for candidate, _score, rollout in scored if not rollout.safety_feasible]
+    debug = {
+        "mpc_horizon": int(horizon),
+        "cbf_margin": float(selected_rollout.min_barrier_h),
+        "selected_candidate": selected_sequence.sequence_id,
+        "rejected_candidates": rejected,
+        "predicted_min_clearance": float(selected_rollout.min_clearance),
+        "external_selection_reason": reason,
+        "external_score": float(selected_score),
+    }
+    return _external_selection(
+        method=method,
+        nominal_action=nominal_action,
+        nominal_sequence=nominal_sequence,
+        nominal_rollout=nominal_rollout,
+        selected_sequence=selected_sequence,
+        selected_rollout=selected_rollout,
+        intervention=intervention,
+        replan=intervention,
+        fallback=selected_sequence.stop_as_last_resort,
+        reason=reason,
+        candidate_rows=candidate_rows,
+        rollout_rows=rollout_rows,
+        debug=debug,
+    )
+
+
+def _select_safedpa_adapted(
+    *,
+    method: str,
+    pose: RobotPose2D,
+    maze: MazeMap,
+    robot_radius: float,
+    nominal_action: VLNAction,
+    nominal_skill: SonicSkill,
+    nominal_sequence: CandidateSequence,
+    nominal_rollout: RolloutResult,
+    visual_free_space: dict[str, Any],
+    progress_monitor: ProgressMonitor,
+    penalties: dict[str, float],
+    step_idx: int,
+    safety_margin: float,
+) -> ExternalSafetySelection:
+    del nominal_skill, penalties
+    candidates = _build_safedpa_candidates(pose=pose, nominal_action=nominal_action)
+    scored = _external_scored_rollouts(
+        method=method,
+        candidates=candidates,
+        pose=pose,
+        maze=maze,
+        robot_radius=robot_radius,
+        nominal_action=nominal_action,
+        visual_free_space=visual_free_space,
+        progress_monitor=progress_monitor,
+        step_idx=step_idx,
+        safety_margin=safety_margin,
+        scoring_mode="safedpa",
+    )
+    low_margin = nominal_rollout.min_barrier_h < max(0.02, 0.25 * safety_margin)
+    nominal_safe = _nominal_action_safe(nominal_action=nominal_action, nominal_rollout=nominal_rollout) and not low_margin
+    if nominal_safe:
+        selected_sequence = nominal_sequence
+        selected_rollout = nominal_rollout
+        selected_score = 0.0
+        reason = "nominal_action_margin_sufficient"
+    else:
+        feasible = [item for item in scored if item[2].safety_feasible and not item[0].stop_as_last_resort]
+        stop_candidates = [item for item in scored if item[0].stop_as_last_resort]
+        if feasible:
+            selected_sequence, selected_score, selected_rollout = sorted(feasible, key=lambda item: item[1], reverse=True)[0]
+            reason = "adapted_to_closest_safe_policy_action"
+        elif stop_candidates:
+            selected_sequence, selected_score, selected_rollout = stop_candidates[0]
+            reason = "all_policy_action_corrections_infeasible"
+        else:
+            selected_sequence = _stop_sequence(method, pose.yaw_deg)
+            selected_rollout = rollout_candidate_sequence(
+                candidate=selected_sequence,
+                start_pose=pose,
+                maze=maze,
+                robot_radius=robot_radius,
+                safety_margin=safety_margin,
+            )
+            selected_score = -1e6
+            reason = "candidate_generation_empty_last_resort_stop"
+    intervention = selected_sequence.sequence_id != nominal_sequence.sequence_id
+    candidate_rows, rollout_rows = _external_rows(
+        method=method,
+        step_idx=step_idx,
+        nominal_action=nominal_action,
+        scored=scored,
+        selected_sequence=selected_sequence,
+        selection_reason=reason,
+    )
+    adapted_action = nominal_action.value if not intervention else _selected_first_action_text(selected_sequence)
+    debug = {
+        "adaptation_applied": bool(intervention),
+        "adaptation_margin": float(selected_rollout.min_barrier_h - nominal_rollout.min_barrier_h),
+        "original_action": nominal_action.value,
+        "adapted_action": adapted_action,
+        "adaptation_reason": reason if intervention else "none",
+        "external_selection_reason": reason,
+        "external_score": float(selected_score),
+    }
+    return _external_selection(
+        method=method,
+        nominal_action=nominal_action,
+        nominal_sequence=nominal_sequence,
+        nominal_rollout=nominal_rollout,
+        selected_sequence=selected_sequence,
+        selected_rollout=selected_rollout,
+        intervention=intervention,
+        replan=False,
+        fallback=selected_sequence.stop_as_last_resort,
+        reason=reason,
+        candidate_rows=candidate_rows,
+        rollout_rows=rollout_rows,
+        debug=debug,
+    )
+
+
+def _select_spark_style_filter_adapted(
+    *,
+    method: str,
+    pose: RobotPose2D,
+    maze: MazeMap,
+    robot_radius: float,
+    nominal_action: VLNAction,
+    nominal_skill: SonicSkill,
+    nominal_sequence: CandidateSequence,
+    nominal_rollout: RolloutResult,
+    visual_free_space: dict[str, Any],
+    progress_monitor: ProgressMonitor,
+    penalties: dict[str, float],
+    step_idx: int,
+    safety_margin: float,
+) -> ExternalSafetySelection:
+    del nominal_skill, penalties
+    candidates = _build_spark_style_candidates(
+        pose=pose,
+        nominal_action=nominal_action,
+        visual_free_space=visual_free_space,
+        progress_monitor=progress_monitor,
+    )
+    scored = _external_scored_rollouts(
+        method=method,
+        candidates=candidates,
+        pose=pose,
+        maze=maze,
+        robot_radius=robot_radius,
+        nominal_action=nominal_action,
+        visual_free_space=visual_free_space,
+        progress_monitor=progress_monitor,
+        step_idx=step_idx,
+        safety_margin=safety_margin,
+        scoring_mode="spark_style",
+    )
+    shield_margin = max(0.02, 0.30 * safety_margin)
+    nominal_safe = (
+        _nominal_action_safe(nominal_action=nominal_action, nominal_rollout=nominal_rollout)
+        and nominal_rollout.min_barrier_h >= shield_margin
+    )
+    if nominal_safe:
+        selected_sequence = nominal_sequence
+        selected_rollout = nominal_rollout
+        selected_score = 0.0
+        reason = "nominal_action_satisfies_spark_style_constraints"
+    else:
+        feasible = [item for item in scored if item[2].safety_feasible and not item[0].stop_as_last_resort]
+        stop_candidates = [item for item in scored if item[0].stop_as_last_resort]
+        if feasible:
+            selected_sequence, selected_score, selected_rollout = sorted(feasible, key=lambda item: item[1], reverse=True)[0]
+            reason = "runtime_shield_projected_to_safe_local_action"
+        elif stop_candidates:
+            selected_sequence, selected_score, selected_rollout = stop_candidates[0]
+            reason = "runtime_shield_rejected_all_non_stop_actions"
+        else:
+            selected_sequence = _stop_sequence(method, pose.yaw_deg)
+            selected_rollout = rollout_candidate_sequence(
+                candidate=selected_sequence,
+                start_pose=pose,
+                maze=maze,
+                robot_radius=robot_radius,
+                safety_margin=safety_margin,
+            )
+            selected_score = -1e6
+            reason = "candidate_generation_empty_last_resort_stop"
+    intervention = selected_sequence.sequence_id != nominal_sequence.sequence_id
+    candidate_rows, rollout_rows = _external_rows(
+        method=method,
+        step_idx=step_idx,
+        nominal_action=nominal_action,
+        scored=scored,
+        selected_sequence=selected_sequence,
+        selection_reason=reason,
+    )
+    projected_action = nominal_action.value if not intervention else _selected_first_action_text(selected_sequence)
+    fallback = selected_sequence.stop_as_last_resort or (
+        intervention and selected_sequence.actions and selected_sequence.actions[0] == "backoff"
+    )
+    debug = {
+        "spark_filter_applied": bool(intervention),
+        "spark_constraint_margin": float(selected_rollout.min_barrier_h),
+        "projected_action": projected_action,
+        "shield_reason": reason if intervention else "none",
+        "recovery_action": projected_action if intervention else "",
+        "spark_style_adaptation": True,
+        "spark_official_code_used": False,
+        "external_selection_reason": reason,
+        "external_score": float(selected_score),
+    }
+    return _external_selection(
+        method=method,
+        nominal_action=nominal_action,
+        nominal_sequence=nominal_sequence,
+        nominal_rollout=nominal_rollout,
+        selected_sequence=selected_sequence,
+        selected_rollout=selected_rollout,
+        intervention=intervention,
+        replan=intervention,
+        fallback=fallback,
+        reason=reason,
+        candidate_rows=candidate_rows,
+        rollout_rows=rollout_rows,
+        debug=debug,
+    )
+
+
+def _external_selection(
+    *,
+    method: str,
+    nominal_action: VLNAction,
+    nominal_sequence: CandidateSequence,
+    nominal_rollout: RolloutResult,
+    selected_sequence: CandidateSequence,
+    selected_rollout: RolloutResult,
+    intervention: bool,
+    replan: bool,
+    fallback: bool,
+    reason: str,
+    candidate_rows: list[dict[str, Any]],
+    rollout_rows: list[dict[str, Any]],
+    debug: dict[str, Any],
+) -> ExternalSafetySelection:
+    selected_action = nominal_action.value if not intervention else _selected_first_action_text(selected_sequence)
+    selected_skill = selected_sequence.skills[0] if intervention else nominal_sequence.skills[0]
+    stop_source = EXTERNAL_BASELINE_STOP_SOURCES[method] if selected_sequence.stop_as_last_resort and intervention else ""
+    return ExternalSafetySelection(
+        method=method,
+        selected_action=selected_action,
+        selected_skill=selected_skill,
+        selected_sequence=selected_sequence,
+        selected_rollout=selected_rollout,
+        nominal_sequence=nominal_sequence,
+        nominal_rollout=nominal_rollout,
+        intervention_applied=bool(intervention),
+        reject_applied=bool(intervention),
+        replan_applied=bool(replan),
+        fallback_applied=bool(fallback),
+        stop_source=stop_source,
+        selection_reason=reason,
+        candidate_rows=candidate_rows,
+        rollout_rows=rollout_rows,
+        debug=debug,
+    )
+
+
+def _build_mpc_cbf_humanoid_candidates(
+    *,
+    pose: RobotPose2D,
+    nominal_action: VLNAction,
+    horizon: int,
+) -> list[CandidateSequence]:
+    max_len = max(1, min(3, int(horizon)))
+    nominal = _nominal_recovery_action(nominal_action)
+    library = [
+        (f"mpc_nominal_{nominal}", (nominal,)),
+        ("mpc_short_forward", ("short_forward",)),
+        ("mpc_backoff", ("backoff",)),
+        ("mpc_turn_left", ("turn_left",)),
+        ("mpc_turn_right", ("turn_right",)),
+        ("mpc_backoff_turn_left", ("backoff", "turn_left")),
+        ("mpc_backoff_turn_right", ("backoff", "turn_right")),
+        ("mpc_turn_left_short_forward", ("turn_left", "short_forward")),
+        ("mpc_turn_right_short_forward", ("turn_right", "short_forward")),
+        ("mpc_wide_arc_left_forward", ("wide_arc_left", "short_forward")),
+        ("mpc_wide_arc_right_forward", ("wide_arc_right", "short_forward")),
+        ("mpc_wall_follow_left_forward", ("wall_follow_left", "short_forward")),
+        ("mpc_wall_follow_right_forward", ("wall_follow_right", "short_forward")),
+        ("mpc_stop_as_last_resort", ("stop_as_last_resort",)),
+    ]
+    return _candidate_library_from_actions(library, pose=pose, max_len=max_len)
+
+
+def _build_safedpa_candidates(
+    *,
+    pose: RobotPose2D,
+    nominal_action: VLNAction,
+) -> list[CandidateSequence]:
+    nominal = _nominal_recovery_action(nominal_action)
+    library = [
+        (f"safedpa_nominal_{nominal}", (nominal,)),
+        ("safedpa_short_forward", ("short_forward",)),
+        ("safedpa_backoff", ("backoff",)),
+        ("safedpa_turn_left", ("turn_left",)),
+        ("safedpa_turn_right", ("turn_right",)),
+        ("safedpa_small_turn_left", ("small_turn_left",)),
+        ("safedpa_small_turn_right", ("small_turn_right",)),
+        ("safedpa_open_space_seek", ("open_space_seek",)),
+        ("safedpa_stop_as_last_resort", ("stop_as_last_resort",)),
+    ]
+    return _candidate_library_from_actions(library, pose=pose, max_len=1)
+
+
+def _build_spark_style_candidates(
+    *,
+    pose: RobotPose2D,
+    nominal_action: VLNAction,
+    visual_free_space: dict[str, Any],
+    progress_monitor: ProgressMonitor,
+) -> list[CandidateSequence]:
+    nominal = _nominal_recovery_action(nominal_action)
+    left = float(visual_free_space.get("left_score", 0.5))
+    center = float(visual_free_space.get("center_score", 0.5))
+    right = float(visual_free_space.get("right_score", 0.5))
+    open_side = "left" if left >= right else "right"
+    state = progress_monitor.state
+    turn_bias = "left" if state.turn_loop_counter == 0 and left >= right else "right"
+    lateral_first = (
+        ("wide_arc_left", "wall_follow_left", "turn_left")
+        if open_side == "left"
+        else ("wide_arc_right", "wall_follow_right", "turn_right")
+    )
+    opposite_turn = "turn_right" if turn_bias == "left" else "turn_left"
+    library = [
+        (f"spark_nominal_{nominal}", (nominal,)),
+        ("spark_project_short_forward", ("short_forward",)),
+        ("spark_project_open_space_seek", ("open_space_seek",)),
+        (f"spark_project_{lateral_first[0]}", (lateral_first[0],)),
+        (f"spark_project_{lateral_first[1]}", (lateral_first[1],)),
+        (f"spark_project_{lateral_first[2]}", (lateral_first[2],)),
+        (f"spark_project_{opposite_turn}", (opposite_turn,)),
+        ("spark_recovery_backoff", ("backoff",)),
+        ("spark_stop_as_last_resort", ("stop_as_last_resort",)),
+    ]
+    if center >= max(left, right):
+        library.insert(1, ("spark_center_open_short_forward", ("short_forward",)))
+    return _candidate_library_from_actions(library, pose=pose, max_len=1)
+
+
+def _candidate_library_from_actions(
+    library: list[tuple[str, tuple[str, ...]]],
+    *,
+    pose: RobotPose2D,
+    max_len: int,
+) -> list[CandidateSequence]:
+    heading = float(pose.yaw_deg)
+    seen: set[tuple[str, ...]] = set()
+    candidates: list[CandidateSequence] = []
+    for sequence_id, actions in library:
+        clipped = tuple(actions[: max(1, max_len)])
+        if clipped in seen:
+            continue
+        seen.add(clipped)
+        candidates.append(
+            CandidateSequence(
+                sequence_id=sequence_id,
+                actions=clipped,
+                skills=tuple(_skills_for_sequence(clipped, heading)),
+                stop_as_last_resort=clipped[0] == "stop_as_last_resort",
+                escape_macro=False,
+            )
+        )
+    return candidates
+
+
+def _external_scored_rollouts(
+    *,
+    method: str,
+    candidates: list[CandidateSequence],
+    pose: RobotPose2D,
+    maze: MazeMap,
+    robot_radius: float,
+    nominal_action: VLNAction,
+    visual_free_space: dict[str, Any],
+    progress_monitor: ProgressMonitor,
+    step_idx: int,
+    safety_margin: float,
+    scoring_mode: str,
+) -> list[tuple[CandidateSequence, float, RolloutResult]]:
+    del method, step_idx
+    scored: list[tuple[CandidateSequence, float, RolloutResult]] = []
+    for candidate in candidates:
+        rollout = rollout_candidate_sequence(
+            candidate=candidate,
+            start_pose=pose,
+            maze=maze,
+            robot_radius=robot_radius,
+            safety_margin=safety_margin,
+        )
+        penalties = progress_monitor.penalties_for_candidate(
+            nominal_action=nominal_action.value,
+            candidate_sequence=list(candidate.actions),
+        )
+        if scoring_mode == "mpc_cbf":
+            score = _mpc_cbf_external_score(
+                candidate=candidate,
+                rollout=rollout,
+                nominal_action=nominal_action,
+                visual_free_space=visual_free_space,
+                penalties=penalties,
+                safety_margin=safety_margin,
+            )
+        elif scoring_mode == "safedpa":
+            score = _safedpa_external_score(
+                candidate=candidate,
+                rollout=rollout,
+                nominal_action=nominal_action,
+                visual_free_space=visual_free_space,
+                penalties=penalties,
+                safety_margin=safety_margin,
+            )
+        elif scoring_mode == "spark_style":
+            score = _spark_style_external_score(
+                candidate=candidate,
+                rollout=rollout,
+                nominal_action=nominal_action,
+                visual_free_space=visual_free_space,
+                penalties=penalties,
+                safety_margin=safety_margin,
+            )
+        else:
+            raise ValueError(f"unsupported external scoring mode: {scoring_mode}")
+        scored.append((candidate, float(score), rollout))
+    return scored
+
+
+def _mpc_cbf_external_score(
+    *,
+    candidate: CandidateSequence,
+    rollout: RolloutResult,
+    nominal_action: VLNAction,
+    visual_free_space: dict[str, Any],
+    penalties: dict[str, float],
+    safety_margin: float,
+) -> float:
+    first = candidate.actions[0]
+    if candidate.stop_as_last_resort:
+        return -100.0
+    if not rollout.safety_feasible:
+        return -1e6
+    margin_score = _clamp01((rollout.min_barrier_h + safety_margin) / max(0.40, safety_margin))
+    intent = intent_consistency_score(nominal_action=nominal_action, candidate_sequence=list(candidate.actions), penalties=penalties)
+    visual = visual_score_for_action(first, visual_free_space)
+    cbf_progress = rollout.min_discrete_cbf_value
+    return (
+        1.80 * margin_score
+        + 0.60 * intent
+        + 0.35 * visual
+        + 0.45 * rollout.clearance_gain
+        + 0.25 * float(rollout.terminal_can_short_forward)
+        + 0.20 * cbf_progress
+        - 0.40 * penalties["recovery_loop_penalty"]
+        - 0.25 * penalties["repeated_reject_penalty"]
+        - 0.08 * max(0, len(candidate.actions) - 1)
+    )
+
+
+def _safedpa_external_score(
+    *,
+    candidate: CandidateSequence,
+    rollout: RolloutResult,
+    nominal_action: VLNAction,
+    visual_free_space: dict[str, Any],
+    penalties: dict[str, float],
+    safety_margin: float,
+) -> float:
+    first = candidate.actions[0]
+    if candidate.stop_as_last_resort:
+        return -50.0
+    if not rollout.safety_feasible:
+        return -1e6
+    adaptation_cost = _action_adaptation_cost(_nominal_recovery_action(nominal_action), first)
+    margin_score = _clamp01((rollout.min_barrier_h + safety_margin) / max(0.35, safety_margin))
+    visual = visual_score_for_action(first, visual_free_space)
+    return (
+        1.15 * margin_score
+        + 0.35 * visual
+        + 0.25 * rollout.clearance_gain
+        - 1.05 * adaptation_cost
+        - 0.35 * penalties["recovery_loop_penalty"]
+        - 0.20 * penalties["repeated_reject_penalty"]
+    )
+
+
+def _spark_style_external_score(
+    *,
+    candidate: CandidateSequence,
+    rollout: RolloutResult,
+    nominal_action: VLNAction,
+    visual_free_space: dict[str, Any],
+    penalties: dict[str, float],
+    safety_margin: float,
+) -> float:
+    first = candidate.actions[0]
+    if candidate.stop_as_last_resort:
+        return -75.0
+    if not rollout.safety_feasible:
+        return -1e6
+    margin_score = _clamp01((rollout.min_barrier_h + safety_margin) / max(0.42, safety_margin))
+    visual = visual_score_for_action(first, visual_free_space)
+    projection_cost = _action_adaptation_cost(_nominal_recovery_action(nominal_action), first)
+    recovery_bonus = 0.20 if first in {"open_space_seek", "wide_arc_left", "wide_arc_right", "wall_follow_left", "wall_follow_right"} else 0.0
+    return (
+        1.35 * margin_score
+        + 0.55 * visual
+        + 0.35 * float(rollout.terminal_can_short_forward)
+        + recovery_bonus
+        - 0.75 * projection_cost
+        - 0.45 * penalties["recovery_loop_penalty"]
+        - 0.20 * penalties["repeated_reject_penalty"]
+    )
+
+
+def _external_rows(
+    *,
+    method: str,
+    step_idx: int,
+    nominal_action: VLNAction,
+    scored: list[tuple[CandidateSequence, float, RolloutResult]],
+    selected_sequence: CandidateSequence,
+    selection_reason: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    candidate_rows: list[dict[str, Any]] = []
+    rollout_rows: list[dict[str, Any]] = []
+    for candidate, score, rollout in scored:
+        selected = candidate.sequence_id == selected_sequence.sequence_id
+        row = {
+            "method": method,
+            "step_id": step_idx,
+            "nominal_action": nominal_action.value,
+            "external_baseline_method": method,
+            "external_candidate_id": candidate.sequence_id,
+            "candidate_sequence_id": candidate.sequence_id,
+            "candidate_sequence": json.dumps(list(candidate.actions)),
+            "sequence_length": len(candidate.actions),
+            "min_clearance": rollout.min_clearance,
+            "min_barrier_h": rollout.min_barrier_h,
+            "cbf_margin": rollout.min_barrier_h,
+            "predicted_min_clearance": rollout.min_clearance,
+            "cbf_violation": int(rollout.cbf_violation),
+            "would_block": int(rollout.would_block),
+            "predicted_wall_contact_steps": rollout.predicted_wall_contact_steps,
+            "safety_feasible": int(rollout.safety_feasible),
+            "safety_rejection_reason": rollout.safety_rejection_reason,
+            "external_score": score,
+            "selected": int(selected),
+            "selection_reason": selection_reason if selected else "",
+        }
+        candidate_rows.append(row)
+        rollout_row = asdict(rollout)
+        rollout_row.update(
+            {
+                "method": method,
+                "step_id": step_idx,
+                "nominal_action": nominal_action.value,
+                "external_baseline_method": method,
+                "external_candidate_id": candidate.sequence_id,
+                "selected": int(selected),
+                "selection_reason": selection_reason if selected else "",
+            }
+        )
+        rollout_rows.append(rollout_row)
+    return candidate_rows, rollout_rows
+
+
+def _nominal_action_safe(*, nominal_action: VLNAction, nominal_rollout: RolloutResult) -> bool:
+    if nominal_action is VLNAction.STOP:
+        return True
+    return bool(nominal_rollout.safety_feasible)
+
+
+def _nominal_recovery_action(action: VLNAction) -> str:
+    return {
+        VLNAction.FORWARD: "short_forward",
+        VLNAction.BACKOFF: "backoff",
+        VLNAction.TURN_LEFT: "turn_left",
+        VLNAction.TURN_RIGHT: "turn_right",
+        VLNAction.STOP: "stop_as_last_resort",
+    }[action]
+
+
+def _same_external_action(nominal_action: VLNAction, selected_sequence: CandidateSequence) -> bool:
+    return bool(selected_sequence.actions) and selected_sequence.actions[0] == _nominal_recovery_action(nominal_action)
+
+
+def _external_action_text(selected_sequence: CandidateSequence, nominal_action: VLNAction) -> str:
+    if "_nominal_" in selected_sequence.sequence_id and _same_external_action(nominal_action, selected_sequence):
+        return nominal_action.value
+    return _selected_first_action_text(selected_sequence)
+
+
+def _selected_first_action_text(selected_sequence: CandidateSequence) -> str:
+    return selected_sequence.actions[0] if selected_sequence.actions else "stop_as_last_resort"
+
+
+def _stop_sequence(method: str, heading: float) -> CandidateSequence:
+    return CandidateSequence(
+        sequence_id=f"{method}_stop_as_last_resort",
+        actions=("stop_as_last_resort",),
+        skills=tuple(_skills_for_sequence(("stop_as_last_resort",), heading)),
+        stop_as_last_resort=True,
+    )
+
+
+def _action_adaptation_cost(original: str, adapted: str) -> float:
+    if original == adapted:
+        return 0.0
+    if {original, adapted} <= {"turn_left", "small_turn_left", "wide_turn_left", "target_reacquire_turn_left"}:
+        return 0.12
+    if {original, adapted} <= {"turn_right", "small_turn_right", "wide_turn_right", "target_reacquire_turn_right"}:
+        return 0.12
+    if original == "short_forward" and adapted in {"open_space_seek", "wide_arc_left", "wide_arc_right", "wall_follow_left", "wall_follow_right"}:
+        return 0.25
+    if action_family(original) == action_family(adapted):
+        return 0.30
+    if adapted == "backoff":
+        return 0.70
+    if adapted == "stop_as_last_resort":
+        return 1.00
+    if original.startswith("turn") and adapted.startswith("turn"):
+        return 0.65
+    return 0.50
 
 
 def select_dmps_replan(
