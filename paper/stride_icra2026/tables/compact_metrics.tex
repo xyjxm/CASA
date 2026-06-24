@@ -1,0 +1,18 @@
+
+\begin{table}[t]
+\caption{Compact metrics table. Intervention rate is per executed step.}
+\label{tab:compact_metrics}
+\centering
+\scriptsize
+\setlength{\tabcolsep}{1.45pt}
+\begin{tabular}{@{}lccccc@{}}
+\hline
+Method & Safe & Unsafe & Timeout & Interv. & Dist. \\
+\hline
+\shortstack[l]{STRIDE} & 30/50 (0.60) & 0 (0.00) & 19 (0.38) & 0.279 & 3.06 \\
+\shortstack[l]{MPC-CBF humanoid\\adapted} & 18/50 (0.36) & 0 (0.00) & 32 (0.64) & 0.691 & 5.16 \\
+\shortstack[l]{SafeDPA\\adapted} & 18/50 (0.36) & 0 (0.00) & 32 (0.64) & 0.784 & 5.54 \\
+\shortstack[l]{SPARK-style\\adapted} & 18/50 (0.36) & 0 (0.00) & 32 (0.64) & 0.710 & 5.41 \\
+\hline
+\end{tabular}
+\end{table}

@@ -1,0 +1,288 @@
+{
+  "checks": [
+    {
+      "display": "STRIDE",
+      "field_checks": [
+        {
+          "actual": 30,
+          "expected": 30,
+          "field": "safe_success_count",
+          "ok": true
+        },
+        {
+          "actual": 50,
+          "expected": 50,
+          "field": "total_episodes",
+          "ok": true
+        },
+        {
+          "actual": 0.6,
+          "expected": 0.6,
+          "field": "safe_success_rate",
+          "ok": true
+        },
+        {
+          "actual": 0,
+          "expected": 0,
+          "field": "unsafe_violation_count",
+          "ok": true
+        }
+      ],
+      "safe_success_token": "30/50 (0.60)",
+      "safe_success_token_present_in_table": true,
+      "status": "pass"
+    },
+    {
+      "display": "MPC-CBF humanoid adapted",
+      "field_checks": [
+        {
+          "actual": 18,
+          "expected": 18,
+          "field": "safe_success_count",
+          "ok": true
+        },
+        {
+          "actual": 50,
+          "expected": 50,
+          "field": "total_episodes",
+          "ok": true
+        },
+        {
+          "actual": 0.36,
+          "expected": 0.36,
+          "field": "safe_success_rate",
+          "ok": true
+        },
+        {
+          "actual": 0,
+          "expected": 0,
+          "field": "unsafe_violation_count",
+          "ok": true
+        }
+      ],
+      "safe_success_token": "18/50 (0.36)",
+      "safe_success_token_present_in_table": true,
+      "status": "pass"
+    },
+    {
+      "display": "SafeDPA adapted",
+      "field_checks": [
+        {
+          "actual": 18,
+          "expected": 18,
+          "field": "safe_success_count",
+          "ok": true
+        },
+        {
+          "actual": 50,
+          "expected": 50,
+          "field": "total_episodes",
+          "ok": true
+        },
+        {
+          "actual": 0.36,
+          "expected": 0.36,
+          "field": "safe_success_rate",
+          "ok": true
+        },
+        {
+          "actual": 0,
+          "expected": 0,
+          "field": "unsafe_violation_count",
+          "ok": true
+        }
+      ],
+      "safe_success_token": "18/50 (0.36)",
+      "safe_success_token_present_in_table": true,
+      "status": "pass"
+    },
+    {
+      "display": "SPARK-style adapted",
+      "field_checks": [
+        {
+          "actual": 18,
+          "expected": 18,
+          "field": "safe_success_count",
+          "ok": true
+        },
+        {
+          "actual": 50,
+          "expected": 50,
+          "field": "total_episodes",
+          "ok": true
+        },
+        {
+          "actual": 0.36,
+          "expected": 0.36,
+          "field": "safe_success_rate",
+          "ok": true
+        },
+        {
+          "actual": 0,
+          "expected": 0,
+          "field": "unsafe_violation_count",
+          "ok": true
+        }
+      ],
+      "safe_success_token": "18/50 (0.36)",
+      "safe_success_token_present_in_table": true,
+      "status": "pass"
+    },
+    {
+      "display": "Full STRIDE",
+      "field_checks": [
+        {
+          "actual": 30,
+          "expected": 30,
+          "field": "safe_success_count",
+          "ok": true
+        },
+        {
+          "actual": 50,
+          "expected": 50,
+          "field": "total_episodes",
+          "ok": true
+        },
+        {
+          "actual": 0.6,
+          "expected": 0.6,
+          "field": "safe_success_rate",
+          "ok": true
+        }
+      ],
+      "safe_success_token": "30/50 (0.60)",
+      "safe_success_token_present_in_table": true,
+      "status": "pass"
+    },
+    {
+      "display": "w/o stop verifier",
+      "field_checks": [
+        {
+          "actual": 23,
+          "expected": 23,
+          "field": "safe_success_count",
+          "ok": true
+        },
+        {
+          "actual": 50,
+          "expected": 50,
+          "field": "total_episodes",
+          "ok": true
+        },
+        {
+          "actual": 0.46,
+          "expected": 0.46,
+          "field": "safe_success_rate",
+          "ok": true
+        }
+      ],
+      "safe_success_token": "23/50 (0.46)",
+      "safe_success_token_present_in_table": true,
+      "status": "pass"
+    },
+    {
+      "display": "w/o late-stop recovery",
+      "field_checks": [
+        {
+          "actual": 30,
+          "expected": 30,
+          "field": "safe_success_count",
+          "ok": true
+        },
+        {
+          "actual": 50,
+          "expected": 50,
+          "field": "total_episodes",
+          "ok": true
+        },
+        {
+          "actual": 0.6,
+          "expected": 0.6,
+          "field": "safe_success_rate",
+          "ok": true
+        }
+      ],
+      "safe_success_token": "30/50 (0.60)",
+      "safe_success_token_present_in_table": true,
+      "status": "pass"
+    },
+    {
+      "display": "w/o visual goal tracker",
+      "field_checks": [
+        {
+          "actual": 30,
+          "expected": 30,
+          "field": "safe_success_count",
+          "ok": true
+        },
+        {
+          "actual": 50,
+          "expected": 50,
+          "field": "total_episodes",
+          "ok": true
+        },
+        {
+          "actual": 0.6,
+          "expected": 0.6,
+          "field": "safe_success_rate",
+          "ok": true
+        }
+      ],
+      "safe_success_token": "30/50 (0.60)",
+      "safe_success_token_present_in_table": true,
+      "status": "pass"
+    },
+    {
+      "display": "w/o task-return replan",
+      "field_checks": [
+        {
+          "actual": 18,
+          "expected": 18,
+          "field": "safe_success_count",
+          "ok": true
+        },
+        {
+          "actual": 50,
+          "expected": 50,
+          "field": "total_episodes",
+          "ok": true
+        },
+        {
+          "actual": 0.36,
+          "expected": 0.36,
+          "field": "safe_success_rate",
+          "ok": true
+        }
+      ],
+      "safe_success_token": "18/50 (0.36)",
+      "safe_success_token_present_in_table": true,
+      "status": "pass"
+    }
+  ],
+  "legacy_name_policy": "Generated tables and figures use display names only; source row ids remain in source_manifest.json.",
+  "output_files": [
+    "figures/ablation_bar.pdf",
+    "figures/results_bar.pdf",
+    "figures/stride_overview.pdf",
+    "figures/task_return_recovery.pdf",
+    "tables/ablation.tex",
+    "tables/compact_metrics.tex",
+    "tables/main_comparison.tex"
+  ],
+  "source_hashes": {
+    "ablation": {
+      "csv_sha256": "8dc53fdffdd06d2f02a88ce41cc83ec000522841fa5d88e54c19ea75dafd197f",
+      "json_sha256": "9fdb64ef0899b90754de7a777d24b85ff769888a1e0ead77f0aec470562879d0"
+    },
+    "external_adapted_baselines": {
+      "csv_sha256": "612216f1ff8d64974bcad6b27945cc9a7febba6560d93582d7ba78b40d2c10a3",
+      "json_sha256": "4ef4386635f1407ddddf8187735485c225335f8de6331246af36586b657451c7"
+    },
+    "full_system_metrics": {
+      "csv_sha256": "c9171e9eb9b7726ed2b9ed3a255aa3c7cbf827588a3e62da64e9d7430cacfb2b",
+      "json_sha256": "ecdf75513223e295c315b38a77063123cfc2f1869e548c4f68c375b6949e616d"
+    }
+  },
+  "source_manifest": "source_manifest.json",
+  "status": "pass"
+}

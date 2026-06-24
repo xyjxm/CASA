@@ -1,0 +1,171 @@
+{
+  "paper": {
+    "title": "STRIDE: Safe Task-Return and Intent-Driven Execution for Humanoid Vision-Language Navigation",
+    "target_venue_style": "ICRA 2026 / IEEE RAS",
+    "page_limit": "8 pages including all content and references",
+    "created_for_branch": "stride-icra2026-draft-20260624"
+  },
+  "template": {
+    "download_status": "official_download_ok",
+    "fallback_used": false,
+    "source_page": "https://ras.papercept.net/conferences/support/tex.php",
+    "zip_url": "https://ras.papercept.net/conferences/support/files/ieeeconf.zip",
+    "downloaded_files": [
+      "template/ieeeconf.zip",
+      "template/IEEEtranBST.zip",
+      "template/ieeeconf.cls",
+      "template/IEEEtran.bst",
+      "template/root.tex",
+      "template/root.pdf",
+      "ieeeconf.cls",
+      "IEEEtran.bst"
+    ],
+    "class_options": "\\documentclass[letterpaper,10pt,conference]{ieeeconf}"
+  },
+  "format_basis": {
+    "icra_2026_page_limit_url": "https://2026.ieee-icra.org/contribute/call-for-icra-2026-papers-now-accepting-submissions/",
+    "paperplaza_latex_support_url": "https://ras.papercept.net/conferences/support/tex.php",
+    "paper_size": "US Letter",
+    "columns": "two-column IEEE style"
+  },
+  "datasets": {
+    "full_system_metrics": {
+      "csv_path": "../../idea_and_plan/vln_ppsr_v4_zero_unsafe_success60_20260621/method_summary.csv",
+      "json_path": "../../idea_and_plan/vln_ppsr_v4_zero_unsafe_success60_20260621/result_summary.json"
+    },
+    "ablation": {
+      "csv_path": "../../idea_and_plan/vln_ppsr_v4_ablation_20260622/ablation_method_summary.csv",
+      "json_path": "../../idea_and_plan/vln_ppsr_v4_ablation_20260622/ablation_result_summary.json"
+    },
+    "external_adapted_baselines": {
+      "csv_path": "../../idea_and_plan/vln_external_safety_baselines_20260623/external_baseline_method_summary.csv",
+      "json_path": "../../idea_and_plan/vln_external_safety_baselines_20260623/external_baseline_result_summary.json"
+    }
+  },
+  "table_row_mapping": {
+    "main_comparison": [
+      {
+        "display": "STRIDE",
+        "dataset": "full_system_metrics",
+        "source_method_id": "vln_ppsr_v4_zero_unsafe_success60",
+        "note": "proposed method"
+      },
+      {
+        "display": "MPC-CBF humanoid adapted",
+        "dataset": "external_adapted_baselines",
+        "source_method_id": "mpc_cbf_humanoid_adapted",
+        "note": "adapted baseline"
+      },
+      {
+        "display": "SafeDPA adapted",
+        "dataset": "external_adapted_baselines",
+        "source_method_id": "safedpa_adapted",
+        "note": "adapted baseline"
+      },
+      {
+        "display": "SPARK-style adapted",
+        "dataset": "external_adapted_baselines",
+        "source_method_id": "spark_style_filter_adapted",
+        "note": "adapted baseline"
+      }
+    ],
+    "ablation": [
+      {
+        "display": "Full STRIDE",
+        "dataset": "ablation",
+        "source_method_id": "vln_ppsr_v4_zero_unsafe_success60"
+      },
+      {
+        "display": "w/o stop verifier",
+        "dataset": "ablation",
+        "source_method_id": "vln_ppsr_v4_ablate_no_stop_verifier"
+      },
+      {
+        "display": "w/o late-stop recovery",
+        "dataset": "ablation",
+        "source_method_id": "vln_ppsr_v4_ablate_no_late_stop_recovery"
+      },
+      {
+        "display": "w/o visual goal tracker",
+        "dataset": "ablation",
+        "source_method_id": "vln_ppsr_v4_ablate_no_visual_goal_tracker"
+      },
+      {
+        "display": "w/o task-return replan",
+        "dataset": "ablation",
+        "source_method_id": "vln_ppsr_v4_ablate_no_task_return_replan"
+      }
+    ]
+  },
+  "required_known_numbers": {
+    "STRIDE": {
+      "safe_success_count": 30,
+      "total_episodes": 50,
+      "safe_success_rate": 0.6,
+      "unsafe_violation_count": 0
+    },
+    "MPC-CBF humanoid adapted": {
+      "safe_success_count": 18,
+      "total_episodes": 50,
+      "safe_success_rate": 0.36,
+      "unsafe_violation_count": 0
+    },
+    "SafeDPA adapted": {
+      "safe_success_count": 18,
+      "total_episodes": 50,
+      "safe_success_rate": 0.36,
+      "unsafe_violation_count": 0
+    },
+    "SPARK-style adapted": {
+      "safe_success_count": 18,
+      "total_episodes": 50,
+      "safe_success_rate": 0.36,
+      "unsafe_violation_count": 0
+    },
+    "Full STRIDE": {
+      "safe_success_count": 30,
+      "total_episodes": 50,
+      "safe_success_rate": 0.6
+    },
+    "w/o stop verifier": {
+      "safe_success_count": 23,
+      "total_episodes": 50,
+      "safe_success_rate": 0.46
+    },
+    "w/o late-stop recovery": {
+      "safe_success_count": 30,
+      "total_episodes": 50,
+      "safe_success_rate": 0.6
+    },
+    "w/o visual goal tracker": {
+      "safe_success_count": 30,
+      "total_episodes": 50,
+      "safe_success_rate": 0.6
+    },
+    "w/o task-return replan": {
+      "safe_success_count": 18,
+      "total_episodes": 50,
+      "safe_success_rate": 0.36
+    }
+  },
+  "baseline_claim_policy": "External rows are adapted baselines created for this local evaluation. They are not official reproductions of the cited systems.",
+  "figure_sources": {
+    "overview_schematic": {
+      "kind": "generated vector schematic",
+      "uses_real_video_frame": false
+    },
+    "task_return_recovery_schematic": {
+      "kind": "generated vector schematic",
+      "uses_real_video_frame": false
+    },
+    "results_bar_plot": {
+      "kind": "generated vector plot from CSV metrics",
+      "uses_real_video_frame": false
+    },
+    "ablation_bar_plot": {
+      "kind": "generated vector plot from CSV metrics",
+      "uses_real_video_frame": false
+    }
+  },
+  "large_outputs_policy": "Large logs, videos, frames, and final draft PDFs are kept under /mnt/data/students/lph/recording and are not committed."
+}

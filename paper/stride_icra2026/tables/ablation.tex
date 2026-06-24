@@ -1,0 +1,19 @@
+
+\begin{table}[t]
+\caption{Ablation on STRIDE components.}
+\label{tab:ablation}
+\centering
+\scriptsize
+\setlength{\tabcolsep}{1.45pt}
+\begin{tabular}{@{}lccccc@{}}
+\hline
+Variant & Safe & Unsafe & Stop & Late & Dist. \\
+\hline
+\shortstack[l]{Full STRIDE} & 30/50 (0.60) & 0 (0.00) & 1.00 & 0.00 & 3.06 \\
+\shortstack[l]{w/o stop\\verifier} & 23/50 (0.46) & 0 (0.00) & 0.85 & 0.08 & 4.26 \\
+\shortstack[l]{w/o late-stop\\recovery} & 30/50 (0.60) & 0 (0.00) & 0.97 & 0.02 & 3.17 \\
+\shortstack[l]{w/o visual goal\\tracker} & 30/50 (0.60) & 0 (0.00) & 1.00 & 0.00 & 3.46 \\
+\shortstack[l]{w/o task-return\\replan} & 18/50 (0.36) & 0 (0.00) & 1.00 & 0.00 & 5.20 \\
+\hline
+\end{tabular}
+\end{table}
