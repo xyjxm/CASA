@@ -151,13 +151,22 @@
   "baseline_claim_policy": "External rows are adapted baselines created for this local evaluation. They are not official reproductions of the cited systems.",
   "figure_sources": {
     "overview_schematic": {
-      "kind": "IMAGE2-generated paper framework schematic",
-      "file": "figures/fig_stride_framework_image2.png",
-      "prompt_file": "figures/fig_stride_framework_image2_prompt.txt",
+      "kind": "IMAGE2-generated paper framework schematic informed by 20 accepted ICRA papers",
+      "file": "figures/fig_stride_framework_image2_icra20.png",
+      "prompt_file": "figures/fig_stride_framework_image2_icra20_prompt.txt",
+      "style_study": "review/icra20_figure_style_study.md",
       "uses_real_video_frame": false
     },
+    "replan_video_stream": {
+      "kind": "downsampled real simulation-frame montage from a verified same-episode replan comparison",
+      "file": "figures/fig_replan_video_stream.png",
+      "manifest": "video_stream_manifest.json",
+      "uses_real_video_frame": true,
+      "source_run_root": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614",
+      "source_output_dir": "/mnt/data/students/lph/recording/stride_icra2026_video_stream_20260624_230207"
+    },
     "task_return_recovery_schematic": {
-      "kind": "generated vector schematic",
+      "kind": "generated vector schematic retained as an unused draft artifact",
       "uses_real_video_frame": false
     },
     "results_bar_plot": {

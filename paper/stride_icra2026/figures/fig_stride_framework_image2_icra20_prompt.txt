@@ -1,0 +1,47 @@
+Use case: scientific-educational
+Asset type: IEEE ICRA paper Fig. 1 framework diagram, horizontal 16:9 PNG, white background.
+Primary request: Generate a polished robotics-paper framework figure for STRIDE, inspired by ICRA accepted paper Fig. 1 style: compact multi-panel layout, small spatial inset, restrained colors, no presentation-slide title.
+
+Do NOT put a large title in the figure. Use only short paper-style labels.
+
+CRITICAL TEXT ACCURACY: Use exactly these text labels and no extra long sentences.
+Panel labels:
+"(a) VLN Policy"
+"(b) STRIDE Gate"
+"(c) Task-Return Recovery"
+"(d) Execution & Metrics"
+
+Required module labels:
+"Instruction + RGB"
+"VLN Policy"
+"Skill Proposal"
+"Intent Memory"
+"Safety Gate"
+"Stop Verifier"
+"Task-Return Recovery"
+"Humanoid Controller"
+"MuJoCo Scene"
+"Metrics"
+
+Required arrow labels only:
+"allow"
+"blocked"
+"resume intent"
+
+Visual layout:
+- Four compact panels arranged left-to-right, labelled (a)-(d).
+- Panel (a): Instruction + RGB -> VLN Policy -> Skill Proposal.
+- Panel (b): central STRIDE Gate panel containing Intent Memory, Safety Gate, Stop Verifier. A blue allowed path exits right; an orange blocked path exits downward.
+- Panel (c): Task-Return Recovery, with a small abstract top-down navigation inset: blue robot dot, orange obstacle/unsafe zone, green target dot, green curved detour arrow returning toward the target. This is an abstract schematic, not a fake screenshot.
+- Panel (d): Humanoid Controller -> MuJoCo Scene -> Metrics.
+- A green curved arrow from Task-Return Recovery back to VLN Policy labelled "resume intent".
+- The STRIDE contribution should be visually central: blocked proposal -> recovery -> resume intent.
+
+Style requirements learned from 20 accepted ICRA papers:
+- Compact, information-dense, paper-like, not a slide deck.
+- White background, flat colors, thin dark outlines, small panel letters.
+- Colorblind-safe palette: blue for allowed execution, orange/red for blocked proposal, green for recovery-return.
+- Use subtle light-gray panel boundaries and enough whitespace.
+- No gradients, no drop shadows, no 3D, no decorative elements.
+- Text must be crisp, large enough to read, spelled correctly, horizontally aligned.
+- No watermark, no logo.

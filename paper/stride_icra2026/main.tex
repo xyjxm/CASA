@@ -69,8 +69,8 @@ Fig.~\ref{fig:overview} summarizes the execution loop. STRIDE is built around fo
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=0.98\textwidth]{figures/fig_stride_framework_image2.png}
-  \caption{STRIDE framework. The upper path is nominal VLN execution from egocentric observation and instruction to a humanoid skill. The lower path is activated when the safety gate or stop verifier blocks a proposal; STRIDE performs bounded recovery, updates intent memory, and returns control to the same language task instead of terminating. This framework figure is generated with IMAGE2, not a camera frame.}
+  \includegraphics[width=0.98\textwidth]{figures/fig_stride_framework_image2_icra20.png}
+  \caption{STRIDE framework. The figure follows the compact multi-panel style observed in 20 accepted ICRA papers. STRIDE mediates policy proposals through intent memory, a safety gate, and a stop verifier; blocked proposals activate task-return recovery, which returns control to the same language intent. The figure is an IMAGE2-generated schematic, not an experimental camera frame.}
   \label{fig:overview}
 \end{figure*}
 
@@ -102,7 +102,7 @@ The verifier addresses two common stop failures. In a premature stop, the policy
 This design choice is motivated by the form of humanoid demos. A robot that stops a little late can still look safe, but if it walks past the target and times out, the instruction is not complete. Similarly, a robot that stops immediately in a clear area may avoid unsafe events, but it has not followed the language instruction. Stop verification makes this failure mode part of the execution layer rather than leaving it entirely to the VLN policy.
 
 \subsection{Task-Return Recovery}
-Fig.~\ref{fig:task_return} illustrates the recovery behavior. When the current candidate is blocked, STRIDE runs a bounded recovery sequence and then re-enters the policy loop with the same instruction intent. This differs from a pure local safety filter: the goal is not only to avoid the immediate unsafe motion, but to make the next policy action useful again.
+Fig.~\ref{fig:replan_stream} illustrates the recovery behavior with frames from a verified held-out episode. When the current candidate is blocked, STRIDE runs a bounded recovery sequence and then re-enters the policy loop with the same instruction intent. This differs from a pure local safety filter: the goal is not only to avoid the immediate unsafe motion, but to make the next policy action useful again.
 
 The recovery behavior has three phases. The wrapper first chooses a local clearing action, such as a small turn or backoff, that is intended to reduce immediate risk. It then checks whether the visual goal evidence can still be tracked or reacquired. Finally, it returns control to the policy with the original instruction context instead of replacing the instruction with a local avoidance objective. This keeps the recovery bounded: it is neither a full global planner nor an open-ended exploration policy.
 
@@ -110,13 +110,15 @@ Task-return recovery is the component most clearly supported by the ablation. Re
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=0.98\textwidth]{figures/task_return_recovery.pdf}
-  \caption{Task-return recovery schematic. The blocked motion is rejected, a local detour is executed, and control returns to the same instruction intent. This is a generated schematic, not a camera frame.}
-  \label{fig:task_return}
+  \includegraphics[width=0.98\textwidth]{figures/fig_replan_video_stream.png}
+  \caption{Verified replan video stream from one held-out episode. The first two frames are identical across rows: both methods approach the same table-side hazard and receive the same rejected forward proposal. STRIDE selects a task-return sequence and resumes the language task, while the MPC-CBF adapted baseline remains safe but enters a local turn/reject loop and times out. Frame ids and source paths are recorded in \texttt{video\_stream\_manifest.json}; the panels are real simulation-rendered frames, not a schematic.}
+  \label{fig:replan_stream}
 \end{figure*}
 
+In the logged event behind Fig.~\ref{fig:replan_stream}, both rows share the first rejected forward proposal at frame 4. STRIDE chooses a bounded recovery, returns control to the policy, and stops at the goal after 79 frames. The MPC-CBF adapted baseline rejects the same candidate but repeatedly selects local turns, never marks the policy ready, and times out at 180 frames without task return.
+
 \section{Experimental Protocol}
-The reported numbers come from local locked artifacts. Each method is evaluated on 50 held-out episodes with the same language tasks, split, unsafe evaluator, and success evaluator. The maximum episode length is 180 steps. Large logs, videos, and frames remain outside the git-tracked paper directory; this draft uses only lightweight CSV/JSON summaries.
+The reported numbers come from local locked artifacts. Each method is evaluated on 50 held-out episodes with the same language tasks, split, unsafe evaluator, and success evaluator. The maximum episode length is 180 steps. Large logs, videos, and frame directories remain outside the git-tracked paper directory; this draft uses lightweight CSV/JSON summaries and a downsampled real-frame montage with separate provenance.
 
 The language tasks are designed so that the instruction can be checked from egocentric visual evidence rather than only from hidden coordinates. This matters because the policy should not need evaluator distance to decide when to stop. The evaluator can still compute final distance for reporting, but the execution policy must act from its own observations and intent state. The protocol therefore separates three roles: the policy proposes actions from visual-language context, STRIDE mediates execution from the same runtime context, and the evaluator scores the resulting episode after the fact.
 
@@ -132,7 +134,7 @@ MPC-CBF humanoid adapted prioritizes predictive safety constraints around the no
 \subsection{Artifact Generation and Checks}
 All table rows are generated from local CSV/JSON summaries. The script in the paper directory regenerates the tables, vector plots, and a machine-readable consistency report. The consistency check compares the displayed counts and rates against locked expected values for STRIDE, the adapted baselines, and the ablation variants. The paper text avoids introducing extra numeric claims that are not present in those artifacts.
 
-The figures are also intentionally conservative. The framework overview is generated with IMAGE2 as a paper-style schematic, the recovery diagram is a generated schematic, and the result and ablation plots are generated directly from the table metrics. This avoids implying visual evidence that the paper artifact does not actually contain. Real videos and frames remain outside the git-tracked paper directory and are referenced only through the broader experiment artifacts.
+The figures are also intentionally conservative. The framework overview is generated with IMAGE2 as a paper-style schematic, the replan stream is a downsampled montage from real simulation-rendered frames, and the result and ablation plots are generated directly from the table metrics. This avoids implying visual evidence that the paper artifact does not actually contain. The original videos, frame directories, and logs remain outside the git-tracked paper directory and are recorded in the source manifests.
 
 \section{Results}
 Table~\ref{tab:main_comparison} gives the main locked comparison. STRIDE achieves 30/50 safe successes with zero unsafe violations. The three adapted baselines each achieve 18/50 safe successes with zero unsafe violations. Thus, in this artifact set, the difference is not unsafe-rate reduction among the adapted safety methods; all four safety-aware rows report zero unsafe violations. The difference is task completion under the same safety constraint.
@@ -172,7 +174,7 @@ The difference between safe rejection and safe task completion is visible in the
 STRIDE reframes this behavior as a recovery problem. After an unsafe encounter, the system should not merely avoid impact; it should place the robot back into a state where the language policy can continue. This is why the proposed method includes both a safety gate and task-return recovery. The safety gate prevents unsafe skill invocation, while recovery tries to make the next policy proposal useful.
 
 \subsection{Limitations}
-The result should not be overread. The run count is modest, the evaluation is local, and the adapted baselines are not official reproductions. The figures are generated schematics and plots, not real screenshots. The paper also does not establish formal safety guarantees; it reports evaluator-observed unsafe counts. These limitations are important for a submission-quality version and motivate broader held-out splits, official baseline support where possible, and hardware validation.
+The result should not be overread. The run count is modest, the evaluation is local, and the adapted baselines are not official reproductions. The video-stream figure is a selected qualitative example rather than a new aggregate metric, and the framework figure remains a generated schematic. The paper also does not establish formal safety guarantees; it reports evaluator-observed unsafe counts. These limitations are important for a submission-quality version and motivate broader held-out splits, official baseline support where possible, and hardware validation.
 
 Another limitation is that STRIDE still depends on the underlying VLN policy. If the policy never proposes a useful route or never visually grounds the target, the execution wrapper cannot synthesize a correct semantic plan from nothing. The wrapper can reject unsafe actions, recover locally, and verify stop proposals, but it is not a substitute for visual-language understanding. This is why the paper frames STRIDE as an execution layer rather than a complete VLN model.
 

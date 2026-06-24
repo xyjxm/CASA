@@ -1,0 +1,218 @@
+{
+  "generated_figure_path": "figures/fig_replan_video_stream.png",
+  "generated_figure_sha256": "d510d19cf3732f2e7f08fb6d477b42cb07198a5f7398de8bedd1ca372f8b0009",
+  "generated_figure_size_bytes": 586195,
+  "full_output_dir": "/mnt/data/students/lph/recording/stride_icra2026_video_stream_20260624_230207",
+  "full_resolution_figure_path": "/mnt/data/students/lph/recording/stride_icra2026_video_stream_20260624_230207/fig_replan_video_stream_full.png",
+  "full_resolution_figure_sha256": "1aaf7e3527d46b7e5c7ac8be917b681b17ff2475ce26d5ca17450560dc367181",
+  "source_run_root": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614",
+  "episode_id": "heldout_001",
+  "selection_reason": "Strict same held-out episode comparison. STRIDE reaches safe success with task-return replans, while the adapted MPC-CBF row times out in the same episode. Both rows share the same first rejected forward candidate at step 4 and the first two selected frame hashes are identical.",
+  "matching": {
+    "type": "same_episode_same_scene",
+    "same_first_hazard": true,
+    "same_rejected_step": 4,
+    "source_video_fps": 8
+  },
+  "summary_artifacts": {
+    "episode_summaries_jsonl": {
+      "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/data/episode_summaries.jsonl",
+      "sha256": "8270eeaadd03d256ebe56837402ebda1ba6ef52a0b45d893a3a3173c6e7aa3d7"
+    },
+    "method_summary_csv": {
+      "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/data/method_summary.csv",
+      "sha256": "c9171e9eb9b7726ed2b9ed3a255aa3c7cbf827588a3e62da64e9d7430cacfb2b"
+    },
+    "v4_method_summary_csv": {
+      "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/data/v4_method_summary.csv",
+      "sha256": "1fc4d2a0aa594f806a4b3b3b14d20e09f54db6d25f321748596705a8ec6ff53b"
+    },
+    "v4_selected_replans_csv": {
+      "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/data/v4_selected_replans.csv",
+      "sha256": "77434c4ebe68cb464f628d0ed6d7e5bf8d4ebd20314e0e2f83ff80a89ec2a955"
+    }
+  },
+  "methods": [
+    {
+      "display_name": "STRIDE",
+      "source_method_id": "vln_ppsr_v4_zero_unsafe_success60",
+      "episode_result": {
+        "safe_success": true,
+        "success": true,
+        "timeout": false,
+        "unsafe_violation": false,
+        "steps": 79,
+        "casa_reject_count": 12,
+        "casa_replan_count": 12,
+        "ppsr_v4_replan_count": 12,
+        "shortest_path_progress": 0.9589598150645355,
+        "final_distance": 0.7387233288383622
+      },
+      "source_video": {
+        "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/videos/vln_ppsr_v4_zero_unsafe_success60/heldout_001.mp4",
+        "sha256": "4764f463435136b0853b3f88f47fe21523dadeee1b85e62a7a52d7b0e6d65286",
+        "size_bytes": 705754,
+        "fps": 8,
+        "frame_count": 79
+      },
+      "source_logs": {
+        "gate_decisions": {
+          "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/data/per_episode/vln_ppsr_v4_zero_unsafe_success60_heldout_001_gate_decisions.jsonl",
+          "sha256": "f3216b56af39fed1380b6cb57537ad53e2a5a86b6f42cb66c65c24d3c793bc11"
+        },
+        "selected_replans": {
+          "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/data/per_episode/vln_ppsr_v4_zero_unsafe_success60_heldout_001_dmps_selected_replans.jsonl",
+          "sha256": "a1862694df37d366e9ed1e6378a1ad0c8fac02c8808e2d8222d9e9ddd913ea8d"
+        },
+        "trajectory": {
+          "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/data/per_episode/vln_ppsr_v4_zero_unsafe_success60_heldout_001_trajectory_log.jsonl",
+          "sha256": "97f9005080ca4831410428fba58982eb3105f776b8e17ebea2ef2331a5e9b66a"
+        }
+      },
+      "verified_event": {
+        "step": 4,
+        "candidate_action": "forward",
+        "reject_reason": "hard_contract_or_casa_threshold",
+        "raw_risk": 0.9999957084655762,
+        "threshold": 0.9997269511222839,
+        "risk_margin": 0.00026875734329223633,
+        "candidate_min_clearance": -0.28,
+        "candidate_would_block": true,
+        "selected_sequence": [
+          "target_reacquire_turn_right",
+          "backoff",
+          "wide_turn_right",
+          "short_forward"
+        ],
+        "control_returned_to_vln": true,
+        "next_vln_action_allowed": true,
+        "next_vln_action": "forward",
+        "policy_ready_score": 0.9306624208051347,
+        "landmark_retained_or_reacquired": true,
+        "language_progress_score": 1.0
+      },
+      "selected_frames": [
+        {
+          "semantic_phase": "unsafe approach",
+          "frame_index": 3,
+          "timestamp_seconds": 0.375,
+          "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/frames/vln_ppsr_v4_zero_unsafe_success60/heldout_001/frame_0003.png",
+          "sha256": "52850feb3a11ed79de4d49136c516cc57a8794ffdc3825b745e2790c6e993735"
+        },
+        {
+          "semantic_phase": "safety block",
+          "frame_index": 4,
+          "timestamp_seconds": 0.5,
+          "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/frames/vln_ppsr_v4_zero_unsafe_success60/heldout_001/frame_0004.png",
+          "sha256": "f5d2634a9f85ba11ec14e0410788550ac662106f511444ed5885941e8bdc4ab9"
+        },
+        {
+          "semantic_phase": "task-return recovery",
+          "frame_index": 6,
+          "timestamp_seconds": 0.75,
+          "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/frames/vln_ppsr_v4_zero_unsafe_success60/heldout_001/frame_0006.png",
+          "sha256": "a12ed1341d89b672d4c75beca105836113e21ca765bbe0e83d285d3572809d74"
+        },
+        {
+          "semantic_phase": "task outcome",
+          "frame_index": 78,
+          "timestamp_seconds": 9.75,
+          "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/frames/vln_ppsr_v4_zero_unsafe_success60/heldout_001/frame_0078.png",
+          "sha256": "c899bb7553e0051b0b5794515d175247d1c0bb5742ec54bdaacf20c6788ff17c"
+        }
+      ]
+    },
+    {
+      "display_name": "MPC-CBF adapted",
+      "source_method_id": "vln_dmps_mpc_cbf_progress",
+      "episode_result": {
+        "safe_success": false,
+        "success": false,
+        "timeout": true,
+        "unsafe_violation": false,
+        "failure_reason": "missing_policy_stop",
+        "steps": 180,
+        "casa_reject_count": 176,
+        "casa_replan_count": 176,
+        "shortest_path_progress": 0.0,
+        "final_distance": 10.594810050208546
+      },
+      "source_video": {
+        "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/videos/vln_dmps_mpc_cbf_progress/heldout_001.mp4",
+        "sha256": "a200bf2ed2a828cf17cea0ab26d55420272a88609cebd93d57c69b66b6f6d3bc",
+        "size_bytes": 1584628,
+        "fps": 8,
+        "frame_count": 180
+      },
+      "source_logs": {
+        "gate_decisions": {
+          "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/data/per_episode/vln_dmps_mpc_cbf_progress_heldout_001_gate_decisions.jsonl",
+          "sha256": "ab6c6d9fccc1111b2f42a626c750d641d6a0e3c9aa7c12d82fa591d785803762"
+        },
+        "selected_replans": {
+          "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/data/per_episode/vln_dmps_mpc_cbf_progress_heldout_001_dmps_selected_replans.jsonl",
+          "sha256": "5b1e93ac818497c04a376518723eb7ae23ba7960a8d145c617085d9f3243814d"
+        },
+        "trajectory": {
+          "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/data/per_episode/vln_dmps_mpc_cbf_progress_heldout_001_trajectory_log.jsonl",
+          "sha256": "e90c1a10ff69c0f158c33f35096aca3f4ae8b14a57447dd48d2a904446838ef3"
+        }
+      },
+      "verified_event": {
+        "step": 4,
+        "candidate_action": "forward",
+        "reject_reason": "hard_contract_or_casa_threshold",
+        "raw_risk": 0.9999957084655762,
+        "threshold": 0.9997269511222839,
+        "risk_margin": 0.00026875734329223633,
+        "candidate_min_clearance": -0.28,
+        "candidate_would_block": true,
+        "selected_sequence": [
+          "small_turn_right"
+        ],
+        "control_returned_to_vln": true,
+        "next_vln_action_allowed": false,
+        "next_vln_action": "",
+        "policy_ready_score": 0.0,
+        "landmark_retained_or_reacquired": false,
+        "language_progress_score": 0.0
+      },
+      "selected_frames": [
+        {
+          "semantic_phase": "unsafe approach",
+          "frame_index": 3,
+          "timestamp_seconds": 0.375,
+          "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/frames/vln_dmps_mpc_cbf_progress/heldout_001/frame_0003.png",
+          "sha256": "52850feb3a11ed79de4d49136c516cc57a8794ffdc3825b745e2790c6e993735"
+        },
+        {
+          "semantic_phase": "safety block",
+          "frame_index": 4,
+          "timestamp_seconds": 0.5,
+          "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/frames/vln_dmps_mpc_cbf_progress/heldout_001/frame_0004.png",
+          "sha256": "f5d2634a9f85ba11ec14e0410788550ac662106f511444ed5885941e8bdc4ab9"
+        },
+        {
+          "semantic_phase": "local turn loop",
+          "frame_index": 20,
+          "timestamp_seconds": 2.5,
+          "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/frames/vln_dmps_mpc_cbf_progress/heldout_001/frame_0020.png",
+          "sha256": "d413f3ad10630dd6dc7dd03335f0ca44b42fc758629ecf8660a019e8a539203c"
+        },
+        {
+          "semantic_phase": "timeout",
+          "frame_index": 179,
+          "timestamp_seconds": 22.375,
+          "path": "/mnt/data/students/lph/recording/vln_ppsr_v4_zero_unsafe_success60_20260621_locked_attempt04_lowratio_memory_seed260614/frames/vln_dmps_mpc_cbf_progress/heldout_001/frame_0179.png",
+          "sha256": "b95a4d9384386417a8dd956d0f47fc4b74cf10a0b4c993eaa58d45f3db67d02d"
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "This is a qualitative case study, not an additional aggregate metric.",
+    "The comparison is same-episode and verified by local logs, but the MPC-CBF row is an adapted local baseline rather than an official reproduction.",
+    "The committed figure is downsampled for the paper; source videos, full frame directories, and the full-resolution generated montage remain under the recording output directory.",
+    "The panels are simulation-rendered frames from local artifacts, not physical-hardware video."
+  ]
+}
