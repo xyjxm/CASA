@@ -29,9 +29,9 @@ Vision-and-language navigation asks an embodied agent to follow natural-language
 
 The central failure mode studied here is not simply collision. A conservative safety filter can avoid unsafe actions but repeatedly reject forward progress until the episode times out. Conversely, a purely task-driven policy can keep pursuing the instruction while crossing unsafe regions. STRIDE targets the intermediate regime: reject unsafe motions, perform a local recovery, reacquire the visual goal when possible, and return to the original navigation task.
 
-This draft makes three narrow contributions. First, it describes STRIDE as an intent-preserving execution layer for humanoid VLN. Second, it defines a locked local evaluation protocol with adapted baselines from MPC-CBF~\cite{zeng2021mpccbf}, SafeDPA~\cite{xiao2023safedpa}, and SPARK-style runtime safety filtering~\cite{sun2025spark}; these are adapted baselines, not official reproductions. Third, it reports generated tables and vector figures whose numeric values are checked against local artifacts.
+This paper makes three contributions. First, it formulates safe humanoid VLN execution as a task-return problem: after an unsafe encounter, the robot must recover to a state from which the language task can continue, rather than simply reject or stop. Second, it introduces STRIDE, an intent-driven execution layer that combines safety gating, stop verification, visual goal tracking, and task-return recovery around a language-conditioned skill policy. Third, it evaluates STRIDE against adapted MPC-CBF, SafeDPA, and SPARK-style safety baselines under the same locked humanoid VLN protocol; these rows are adapted baselines, not official reproductions.
 
-The scope is intentionally limited. The results are a paper-draft summary of existing artifacts, not a new experimental run. We do not claim hardware deployment, official baseline reproduction, or superiority beyond the logged evaluation setting.
+The scope is intentionally bounded. We do not claim hardware deployment, official baseline reproduction, or superiority beyond the logged evaluation setting. Instead, the paper focuses on a concrete failure mode that is easy to miss in safety-only evaluation: a humanoid can be safe because it rejects motion, yet still fail to make useful progress on the language task.
 
 \section{Related Work}
 \subsection{Vision-Language Navigation}
@@ -69,8 +69,8 @@ Fig.~\ref{fig:overview} summarizes the execution loop. STRIDE is built around fo
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=0.98\textwidth]{figures/stride_overview.pdf}
-  \caption{STRIDE overview. This is a generated schematic, not a camera frame. A language-conditioned policy proposes a motion skill; STRIDE checks safety and stop validity, then either executes the skill or runs task-return recovery.}
+  \includegraphics[width=0.98\textwidth]{figures/fig_stride_framework_image2.png}
+  \caption{STRIDE framework. The upper path is nominal VLN execution from egocentric observation and instruction to a humanoid skill. The lower path is activated when the safety gate or stop verifier blocks a proposal; STRIDE performs bounded recovery, updates intent memory, and returns control to the same language task instead of terminating. This framework figure is generated with IMAGE2, not a camera frame.}
   \label{fig:overview}
 \end{figure*}
 
@@ -118,7 +118,7 @@ Task-return recovery is the component most clearly supported by the ablation. Re
 \section{Experimental Protocol}
 The reported numbers come from local locked artifacts. Each method is evaluated on 50 held-out episodes with the same language tasks, split, unsafe evaluator, and success evaluator. The maximum episode length is 180 steps. Large logs, videos, and frames remain outside the git-tracked paper directory; this draft uses only lightweight CSV/JSON summaries.
 
-The language tasks are designed so that the instruction can be checked from egocentric visual evidence rather than only from hidden coordinates. This matters because the policy should not need evaluator distance to decide when to stop. The evaluator can still compute final distance for reporting, but the execution policy must act from its own observations and intent state. The draft therefore separates three roles: the policy proposes actions from visual-language context, STRIDE mediates execution from the same runtime context, and the evaluator scores the resulting episode after the fact.
+The language tasks are designed so that the instruction can be checked from egocentric visual evidence rather than only from hidden coordinates. This matters because the policy should not need evaluator distance to decide when to stop. The evaluator can still compute final distance for reporting, but the execution policy must act from its own observations and intent state. The protocol therefore separates three roles: the policy proposes actions from visual-language context, STRIDE mediates execution from the same runtime context, and the evaluator scores the resulting episode after the fact.
 
 STRIDE is compared against three adapted baselines. MPC-CBF humanoid adapted follows the model-predictive control and control-barrier-function safety-filter family~\cite{zeng2021mpccbf}. SafeDPA adapted follows the idea of safe policy adaptation with a control-barrier safety layer~\cite{xiao2023safedpa}. SPARK-style adapted follows the runtime humanoid safety-filtering style of SPARK~\cite{sun2025spark}. These are adapted baselines for the local humanoid VLN harness, not official reproductions of the original systems.
 
@@ -132,7 +132,7 @@ MPC-CBF humanoid adapted prioritizes predictive safety constraints around the no
 \subsection{Artifact Generation and Checks}
 All table rows are generated from local CSV/JSON summaries. The script in the paper directory regenerates the tables, vector plots, and a machine-readable consistency report. The consistency check compares the displayed counts and rates against locked expected values for STRIDE, the adapted baselines, and the ablation variants. The paper text avoids introducing extra numeric claims that are not present in those artifacts.
 
-The figures are also intentionally conservative. The overview and recovery diagrams are generated vector schematics, not screenshots. The result and ablation plots are generated directly from the table metrics. This avoids implying visual evidence that the paper artifact does not actually contain. Real videos and frames remain outside the git-tracked paper directory and are referenced only through the broader experiment artifacts.
+The figures are also intentionally conservative. The framework overview is generated with IMAGE2 as a paper-style schematic, the recovery diagram is a generated schematic, and the result and ablation plots are generated directly from the table metrics. This avoids implying visual evidence that the paper artifact does not actually contain. Real videos and frames remain outside the git-tracked paper directory and are referenced only through the broader experiment artifacts.
 
 \section{Results}
 Table~\ref{tab:main_comparison} gives the main locked comparison. STRIDE achieves 30/50 safe successes with zero unsafe violations. The three adapted baselines each achieve 18/50 safe successes with zero unsafe violations. Thus, in this artifact set, the difference is not unsafe-rate reduction among the adapted safety methods; all four safety-aware rows report zero unsafe violations. The difference is task completion under the same safety constraint.
@@ -179,7 +179,7 @@ Another limitation is that STRIDE still depends on the underlying VLN policy. If
 Finally, the current artifact does not report statistical confidence intervals or per-scene breakdowns. The table consistency script establishes that the displayed numbers match the local summaries, but it does not replace a broader benchmark. A stronger submission should include more held-out scenes, repeated seeds, and qualitative videos that show both successful recovery and remaining failure cases.
 
 \section{Conclusion}
-STRIDE is an intent-driven execution wrapper for humanoid VLN. In the locked local artifact set, it preserves zero unsafe violations while improving safe success relative to three adapted safety baselines. The ablation points to stop verification and task-return replan as the most important components in this run. The accompanying paper artifacts include generated vector figures, generated tables, source provenance, reviewer notes, and a table consistency check so that numeric claims can be traced back to CSV/JSON files.
+STRIDE is an intent-driven execution wrapper for humanoid VLN. In the locked local artifact set, it preserves zero unsafe violations while improving safe success relative to three adapted safety baselines. The ablation points to stop verification and task-return replan as the most important components in this run. The accompanying paper artifacts include an IMAGE2-generated framework figure, generated tables, source provenance, reviewer notes, and a table consistency check so that numeric claims can be traced back to CSV/JSON files.
 
 \bibliographystyle{IEEEtran}
 \bibliography{refs}

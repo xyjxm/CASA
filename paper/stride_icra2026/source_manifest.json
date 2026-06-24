@@ -151,7 +151,9 @@
   "baseline_claim_policy": "External rows are adapted baselines created for this local evaluation. They are not official reproductions of the cited systems.",
   "figure_sources": {
     "overview_schematic": {
-      "kind": "generated vector schematic",
+      "kind": "IMAGE2-generated paper framework schematic",
+      "file": "figures/fig_stride_framework_image2.png",
+      "prompt_file": "figures/fig_stride_framework_image2_prompt.txt",
       "uses_real_video_frame": false
     },
     "task_return_recovery_schematic": {
