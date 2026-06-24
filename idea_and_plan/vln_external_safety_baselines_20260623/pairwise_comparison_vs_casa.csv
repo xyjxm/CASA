@@ -1,4 +1,0 @@
-method,casa_method,claimable_heldout_result,safe_success_count,casa_safe_success_count,safe_success_delta_vs_casa,unsafe_violation_count,casa_unsafe_violation_count,unsafe_violation_rate_delta_vs_casa,collision_count_delta_vs_casa,fall_count_delta_vs_casa,reject_count_delta_vs_casa,fallback_count_delta_vs_casa,intervention_rate_delta_vs_casa,safe_success_better_than_casa,unsafe_better_than_casa,excessive_intervention_win
-mpc_cbf_humanoid_adapted,vln_ppsr_v4_zero_unsafe_success60,1,18,31,-0.26,0,0,0.0,0,0,3074,18,0.4158242866341716,0,0,0
-safedpa_adapted,vln_ppsr_v4_zero_unsafe_success60,1,18,31,-0.26,0,0,0.0,0,0,3692,18,0.5089947977151305,0,0,0
-spark_style_filter_adapted,vln_ppsr_v4_zero_unsafe_success60,1,18,31,-0.26,0,0,0.0,0,0,3202,159,0.43512173876744464,0,0,0

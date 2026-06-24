@@ -1,8 +1,7 @@
 # VLN External Safety Baselines 2026-06-23
 
 This directory contains lightweight, git-trackable artifacts for the locked online
-SONIC VLN comparison between CASA-PPSR-v4 and three adapted external safety
-baselines.
+SONIC VLN comparison across three adapted external safety baselines.
 
 Full run directory:
 
@@ -20,7 +19,6 @@ Protocol:
 
 Methods:
 
-- `vln_ppsr_v4_zero_unsafe_success60`
 - `mpc_cbf_humanoid_adapted`
 - `safedpa_adapted`
 - `spark_style_filter_adapted`
@@ -29,20 +27,19 @@ Result summary:
 
 | method | safe success | unsafe | reject | replan | fallback | intervention rate |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `vln_ppsr_v4_zero_unsafe_success60` | 31/50 (0.62) | 0 | 1510 | 1510 | 0 | 0.275 |
 | `mpc_cbf_humanoid_adapted` | 18/50 (0.36) | 0 | 4584 | 4584 | 18 | 0.691 |
 | `safedpa_adapted` | 18/50 (0.36) | 0 | 5202 | 0 | 18 | 0.784 |
 | `spark_style_filter_adapted` | 18/50 (0.36) | 0 | 4712 | 4712 | 159 | 0.710 |
 
-Direct comparison:
+External-only conclusion:
 
-- Better than CASA on safe success: none.
-- Better than CASA on unsafe violations: none; all methods had zero unsafe violations.
-- Intervention/fallback driven wins: none, because none of the adapted baselines beat CASA on safe success.
+- All three adapted external baselines reached `18/50 = 0.36` safe success.
+- All three adapted external baselines had zero unsafe violations in this locked run.
+- The adapted methods differ mainly in intervention budget: `safedpa_adapted` intervened most, followed by `spark_style_filter_adapted`, then `mpc_cbf_humanoid_adapted`.
 
 Notes:
 
 - These baselines are adapted method implementations, not official reproductions of the cited external systems.
 - `spark_style_filter_adapted` is explicitly a SPARK-style runtime safety filter adaptation; official SPARK code was not used.
-- The real online evaluation completed all 50/50 episodes for all four methods. A first aggregation attempt exited after the online episodes completed due to a list-valued audit-field bug; the bug was fixed and the same completed run was postprocessed to generate the root summaries and this lightweight artifact set.
+- The real online evaluation completed all 50/50 episodes for all three external methods. A first aggregation attempt exited after the online episodes completed due to a list-valued audit-field bug; the bug was fixed and the same completed run was postprocessed to generate the root summaries and this lightweight artifact set.
 - Large decision logs, trajectory logs, videos, frames, and stdout logs remain under `/mnt/data/students/lph/recording/` and are not tracked in git.

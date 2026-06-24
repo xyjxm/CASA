@@ -1,5 +1,6 @@
 {
-  "created_at": "2026-06-24T01:56:40+0800",
+  "artifact_scope": "external_adapted_baselines_only",
+  "created_at": "2026-06-24T13:21:10+0800",
   "external_method_metadata": {
     "mpc_cbf_humanoid_adapted": {
       "claim": "adapted baseline",
@@ -48,23 +49,20 @@
       "style_adaptation_note": "This is a SPARK-style runtime safety filter adaptation for SONIC VLN, not an official SPARK reproduction."
     }
   },
-  "git_commit": "6d709b4c1bdb25fe92ac913fd5b5b95ae48cb84a",
-  "git_status_short": "M gear_sonic/vln/casa_runner.py\n M gear_sonic/vln/dmps_mpc_cbf_replan.py\n?? gear_sonic/tests/vln/test_external_safety_baselines.py",
   "large_outputs_not_in_git": true,
   "methods": [
-    "vln_ppsr_v4_zero_unsafe_success60",
     "mpc_cbf_humanoid_adapted",
     "safedpa_adapted",
     "spark_style_filter_adapted"
   ],
+  "note": "Git-tracked artifact files are filtered to the external adapted baselines only.",
   "outputs": {
     "external_baseline_manifest_json": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846/external_baseline_manifest.json",
     "external_baseline_method_summary_csv": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846/external_baseline_method_summary.csv",
     "external_baseline_report_md": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846/external_baseline_report.md",
     "external_baseline_result_summary_json": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846/external_baseline_result_summary.json",
     "failure_reason_breakdown_json": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846/failure_reason_breakdown.json",
-    "intervention_budget_comparison_csv": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846/intervention_budget_comparison.csv",
-    "pairwise_comparison_vs_casa_csv": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846/pairwise_comparison_vs_casa.csv"
+    "intervention_budget_comparison_csv": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846/intervention_budget_comparison.csv"
   },
   "protocol": {
     "eval_stage": "locked",
@@ -80,5 +78,5 @@
     ]
   },
   "run_dir": "/mnt/data/students/lph/recording/vln_external_safety_baselines_20260623_134846",
-  "spark_style_note": "This is a SPARK-style runtime safety filter adaptation for SONIC VLN, not an official SPARK reproduction."
+  "source_commit_before_external_only_cleanup": "7b17968d1c62390ffb4331bd5127e80d17baa2bb"
 }

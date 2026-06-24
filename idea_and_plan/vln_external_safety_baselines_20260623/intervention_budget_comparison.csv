@@ -1,5 +1,4 @@
 method,total_episodes,average_steps_per_episode,reject_count,reject_rate_per_step,replan_count,fallback_count,fallback_rate_per_step,safety_filter_intervention_count,safety_filter_intervention_rate,intervention_budget_count,intervention_budget_rate,safe_success_rate,unsafe_violation_rate
-vln_ppsr_v4_zero_unsafe_success60,50,111.02,1510,0.2720230589083048,1510,0,0.0,0,0.0,1528,0.2752657178886687,0.62,0.0
 mpc_cbf_humanoid_adapted,50,132.66,4584,0.6910900045228403,4584,18,0.0027137042062415195,4584,0.6910900045228403,4584,0.6910900045228403,0.36,0.0
 safedpa_adapted,50,132.66,5202,0.7842605156037992,0,18,0.0027137042062415195,5202,0.7842605156037992,5202,0.7842605156037992,0.36,0.0
 spark_style_filter_adapted,50,132.66,4712,0.7103874566561134,4712,159,0.02397105382180009,4712,0.7103874566561134,4712,0.7103874566561134,0.36,0.0
